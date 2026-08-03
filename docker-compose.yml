@@ -1,0 +1,136 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: sop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sop_admin
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: sop_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sop-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: sop-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - sop-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: sop-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: sop_admin
+      MINIO_ROOT_PASSWORD: changeme123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - sop-network
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: sop-keycloak
+    restart: unless-stopped
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin123
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/sop_db
+      KC_DB_USERNAME: sop_admin
+      KC_DB_PASSWORD: changeme
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - sop-network
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
+    container_name: sop-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    networks:
+      - sop-network
+  cortex:
+    image: thehiveproject/cortex:3.1.7-1
+    container_name: sop-cortex
+    restart: unless-stopped
+    environment:
+      - job_directory=/tmp/cortex-jobs
+    ports:
+      - "9002:9001"
+    depends_on:
+      - elasticsearch
+    networks:
+      - sop-network
+
+  thehive:
+    image: strangebee/thehive:5.4
+    container_name: sop-thehive
+    restart: unless-stopped
+    ports:
+      - "9003:9000"
+    environment:
+      JVM_OPTS: "-Xms1G -Xmx1G"
+    networks:
+      - sop-network
+  misp:
+    image: coolacid/misp-docker:core-latest
+    container_name: sop-misp
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: misp-db
+      MYSQL_DATABASE: misp
+      MYSQL_USER: misp
+      MYSQL_PASSWORD: misp123
+      MISP_ADMIN_EMAIL: admin@sop.local
+      MISP_ADMIN_PASSPHRASE: admin123
+      MISP_BASEURL: http://localhost:9004
+      CRON_USER_ID: "1"
+    ports:
+      - "9004:80"
+    depends_on:
+      - misp-db
+    networks:
+      - sop-network
+  misp-db:
+    image: mysql:8.0
+    container_name: sop-misp-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: misp
+      MYSQL_USER: misp
+      MYSQL_PASSWORD: misp123
+    volumes:
+      - misp_db_data:/var/lib/mysql
+    networks:
+      - sop-network
+
+volumes:
+  postgres_data:
+  minio_data:
+  misp_db_data:
+
+networks:
+  sop-network:
+    driver: bridge
