@@ -2,8 +2,30 @@ from fastapi import FastAPI
 import os
 import requests
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
 load_dotenv()
+
+DATABASE_URL = "postgresql://sop_admin:changeme@localhost:5432/sop_db"
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
+
+class Indicator(Base):
+    __tablename__ = "indicators"
+    id = Column(Integer, primary_key=True, index=True)
+    ip_address = Column(String, index=True)
+    verdict = Column(String)
+    malicious_signals = Column(Integer)
+    sources_checked = Column(JSON)
+    details = Column(JSON)
+    checked_at = Column(DateTime, default=datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Security Operations Platform API")
 
@@ -67,7 +89,7 @@ def check_ip_otx(ip_address: str):
     headers = {"X-OTX-API-KEY": OTX_API_KEY}
     url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{ip_address}/general"
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=20)
         data = response.json()
         return {
             "ip": ip_address,
@@ -167,7 +189,7 @@ def unified_threat_check(ip_address: str):
     try:
         otx_headers = {"X-OTX-API-KEY": OTX_API_KEY}
         otx_url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{ip_address}/general"
-        otx_resp = requests.get(otx_url, headers=otx_headers, timeout=10).json()
+        otx_resp = requests.get(otx_url, headers=otx_headers, timeout=20).json()
         pulse_count = otx_resp.get("pulse_info", {}).get("count", 0)
         result["details"]["otx"] = {
             "reputation": otx_resp.get("reputation"),
@@ -202,4 +224,33 @@ def unified_threat_check(ip_address: str):
     else:
         result["overall_verdict"] = "clean"
 
+    # Save to database
+    db = SessionLocal()
+    new_record = Indicator(
+        ip_address=ip_address,
+        verdict=result["overall_verdict"],
+        malicious_signals=result["malicious_signals"],
+        sources_checked=result["sources_checked"],
+        details=result["details"]
+    )
+    db.add(new_record)
+    db.commit()
+    db.close()
+
     return result
+
+
+@app.get("/threat-intel/history")
+def get_history():
+    db = SessionLocal()
+    records = db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(20).all()
+    db.close()
+    return [
+        {
+            "ip": r.ip_address,
+            "verdict": r.verdict,
+            "malicious_signals": r.malicious_signals,
+            "sources_checked": r.sources_checked,
+            "checked_at": r.checked_at.isoformat()
+        } for r in records
+    ]
