@@ -78,7 +78,6 @@ def check_ip_otx(ip_address: str):
         }
     except requests.exceptions.RequestException as e:
         return {"error": str(e)}
-URLSCAN_API_KEY = os.getenv("URLSCAN_API_KEY")
 
 @app.get("/threat-intel/urlscan/{domain}")
 def check_domain_urlscan(domain: str):
@@ -101,6 +100,7 @@ def check_domain_urlscan(domain: str):
         }
     except requests.exceptions.RequestException as e:
         return {"error": str(e)}
+
 @app.get("/threat-intel/shodan/{ip_address}")
 def check_ip_shodan(ip_address: str):
     url = f"https://api.shodan.io/shodan/host/{ip_address}?key={SHODAN_API_KEY}"
@@ -117,3 +117,89 @@ def check_ip_shodan(ip_address: str):
         }
     except requests.exceptions.RequestException as e:
         return {"error": str(e)}
+
+
+@app.get("/threat-intel/check/{ip_address}")
+def unified_threat_check(ip_address: str):
+    result = {
+        "ip": ip_address,
+        "sources_checked": [],
+        "overall_verdict": "unknown",
+        "malicious_signals": 0,
+        "details": {}
+    }
+
+    # VirusTotal
+    try:
+        vt_headers = {"x-apikey": VT_API_KEY}
+        vt_url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip_address}"
+        vt_resp = requests.get(vt_url, headers=vt_headers, timeout=10).json()
+        vt_attr = vt_resp.get("data", {}).get("attributes", {})
+        vt_malicious = vt_attr.get("total_votes", {}).get("malicious", 0)
+        result["details"]["virustotal"] = {
+            "reputation": vt_attr.get("reputation"),
+            "malicious_votes": vt_malicious
+        }
+        result["sources_checked"].append("virustotal")
+        if vt_malicious and vt_malicious > 0:
+            result["malicious_signals"] += 1
+    except Exception as e:
+        result["details"]["virustotal"] = {"error": str(e)}
+
+    # AbuseIPDB
+    try:
+        abuse_headers = {"Key": ABUSEIPDB_API_KEY, "Accept": "application/json"}
+        abuse_params = {"ipAddress": ip_address, "maxAgeInDays": 90}
+        abuse_resp = requests.get("https://api.abuseipdb.com/api/v2/check", headers=abuse_headers, params=abuse_params, timeout=10).json()
+        abuse_data = abuse_resp.get("data", {})
+        abuse_score = abuse_data.get("abuseConfidenceScore", 0)
+        result["details"]["abuseipdb"] = {
+            "abuse_confidence_score": abuse_score,
+            "total_reports": abuse_data.get("totalReports")
+        }
+        result["sources_checked"].append("abuseipdb")
+        if abuse_score and abuse_score > 20:
+            result["malicious_signals"] += 1
+    except Exception as e:
+        result["details"]["abuseipdb"] = {"error": str(e)}
+
+    # OTX
+    try:
+        otx_headers = {"X-OTX-API-KEY": OTX_API_KEY}
+        otx_url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{ip_address}/general"
+        otx_resp = requests.get(otx_url, headers=otx_headers, timeout=10).json()
+        pulse_count = otx_resp.get("pulse_info", {}).get("count", 0)
+        result["details"]["otx"] = {
+            "reputation": otx_resp.get("reputation"),
+            "pulse_count": pulse_count
+        }
+        result["sources_checked"].append("otx")
+        if pulse_count and pulse_count > 0:
+            result["malicious_signals"] += 1
+    except Exception as e:
+        result["details"]["otx"] = {"error": str(e)}
+
+    # Shodan
+    try:
+        shodan_url = f"https://api.shodan.io/shodan/host/{ip_address}?key={SHODAN_API_KEY}"
+        shodan_resp = requests.get(shodan_url, timeout=10).json()
+        vulns = list(shodan_resp.get("vulns", []))
+        result["details"]["shodan"] = {
+            "open_ports": shodan_resp.get("ports"),
+            "vulns": vulns
+        }
+        result["sources_checked"].append("shodan")
+        if vulns and len(vulns) > 0:
+            result["malicious_signals"] += 1
+    except Exception as e:
+        result["details"]["shodan"] = {"error": str(e)}
+
+    # Final verdict
+    if result["malicious_signals"] >= 2:
+        result["overall_verdict"] = "malicious"
+    elif result["malicious_signals"] == 1:
+        result["overall_verdict"] = "suspicious"
+    else:
+        result["overall_verdict"] = "clean"
+
+    return result
