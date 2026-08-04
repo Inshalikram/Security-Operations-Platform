@@ -7,6 +7,9 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 
+THEHIVE_API_KEY = os.getenv("THEHIVE_API_KEY")
+THEHIVE_URL = os.getenv("THEHIVE_URL")
+
 load_dotenv()
 
 DATABASE_URL = "postgresql://sop_admin:changeme@localhost:5432/sop_db"
@@ -34,6 +37,8 @@ ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY")
 OTX_API_KEY = os.getenv("OTX_API_KEY")
 URLSCAN_API_KEY = os.getenv("URLSCAN_API_KEY")
 SHODAN_API_KEY = os.getenv("SHODAN_API_KEY")
+THEHIVE_API_KEY = os.getenv("THEHIVE_API_KEY")
+THEHIVE_URL = os.getenv("THEHIVE_URL")
 
 @app.get("/")
 def root():
@@ -236,7 +241,29 @@ def unified_threat_check(ip_address: str):
     db.add(new_record)
     db.commit()
     db.close()
-
+    # Auto-create TheHive case if suspicious or malicious
+    if result["overall_verdict"] in ["malicious", "suspicious"]:
+        try:
+            case_payload = {
+                "title": f"Threat Alert: {ip_address} - {result['overall_verdict']}",
+                "description": f"Automated detection.\nVerdict: {result['overall_verdict']}\nMalicious signals: {result['malicious_signals']}\nSources checked: {', '.join(result['sources_checked'])}",
+                "severity": 3 if result["overall_verdict"] == "malicious" else 2,
+                "tlp": 2,
+                "tags": ["auto-generated", "threat-intel", result["overall_verdict"]]
+            }
+            hive_headers = {
+                "Authorization": f"Bearer {THEHIVE_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            hive_resp = requests.post(
+                f"{THEHIVE_URL}/api/v1/case",
+                json=case_payload,
+                headers=hive_headers,
+                timeout=10
+            )
+            result["thehive_case"] = hive_resp.json() if hive_resp.status_code < 300 else {"error": hive_resp.text}
+        except Exception as e:
+            result["thehive_case"] = {"error": str(e)}
     return result
 
 
