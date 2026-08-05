@@ -6,13 +6,12 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
+from pydantic import BaseModel
 
-THEHIVE_API_KEY = os.getenv("THEHIVE_API_KEY")
-THEHIVE_URL = os.getenv("THEHIVE_URL")
 
 load_dotenv()
 
-DATABASE_URL = "postgresql://sop_admin:changeme@localhost:5432/sop_db"
+DATABASE_URL = "postgresql://sop_admin:changeme@127.0.0.1:5432/sop_db"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
@@ -39,6 +38,71 @@ URLSCAN_API_KEY = os.getenv("URLSCAN_API_KEY")
 SHODAN_API_KEY = os.getenv("SHODAN_API_KEY")
 THEHIVE_API_KEY = os.getenv("THEHIVE_API_KEY")
 THEHIVE_URL = os.getenv("THEHIVE_URL")
+
+
+def call_ollama(prompt: str) -> str:
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "llama3.2", "prompt": prompt, "stream": False},
+            timeout=120
+        )
+        response.raise_for_status()
+        data = response.json()
+        print("OLLAMA RAW RESPONSE:", data)  # debug line
+        return data.get("response", "")
+    except Exception as e:
+        print("OLLAMA ERROR:", e)  # debug line
+        raise
+
+
+# ── AI GATEWAY — supports OpenAI, Gemini, Ollama, DeepSeek, Qwen ──
+AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama")
+
+def call_openai(prompt: str) -> str:
+    headers = {"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}", "Content-Type": "application/json"}
+    payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]}
+    r = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+def call_gemini(prompt: str) -> str:
+    key = os.getenv("GEMINI_API_KEY")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    r = requests.post(url, json=payload, timeout=60)
+    r.raise_for_status()
+    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+def call_deepseek(prompt: str) -> str:
+    headers = {"Authorization": f"Bearer {os.getenv('DEEPSEEK_API_KEY')}", "Content-Type": "application/json"}
+    payload = {"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]}
+    r = requests.post("https://api.deepseek.com/chat/completions", headers=headers, json=payload, timeout=60)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+def call_qwen(prompt: str) -> str:
+    headers = {"Authorization": f"Bearer {os.getenv('QWEN_API_KEY')}", "Content-Type": "application/json"}
+    payload = {"model": "qwen-plus", "messages": [{"role": "user", "content": prompt}]}
+    r = requests.post("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", headers=headers, json=payload, timeout=60)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+PROVIDERS = {
+    "ollama": call_ollama,
+    "openai": call_openai,
+    "gemini": call_gemini,
+    "deepseek": call_deepseek,
+    "qwen": call_qwen,
+}
+
+def call_ai(prompt: str, provider: str = None) -> str:
+    """The AI Gateway required by the assignment — routes to any of the 5 providers."""
+    provider = (provider or AI_PROVIDER).lower()
+    if provider not in PROVIDERS:
+        raise ValueError(f"Unknown AI provider '{provider}'. Choose from: {list(PROVIDERS.keys())}")
+    return PROVIDERS[provider](prompt)
+
 
 @app.get("/")
 def root():
@@ -281,3 +345,118 @@ def get_history():
             "checked_at": r.checked_at.isoformat()
         } for r in records
     ]
+
+
+# ── AI FEATURES (all 7 required by the assignment, all going through call_ai) ──
+
+@app.get("/ai/explain/{ip_address}")
+def ai_explain_ioc(ip_address: str, provider: str = None):
+    threat_data = unified_threat_check(ip_address)
+    prompt = f"""You are a SOC analyst assistant. Explain this threat intelligence finding in simple, clear language for a security report.
+
+IP Address: {threat_data['ip']}
+Overall Verdict: {threat_data['overall_verdict']}
+Malicious Signals: {threat_data['malicious_signals']}
+Sources Checked: {', '.join(threat_data['sources_checked'])}
+Details: {threat_data['details']}
+
+Give a 3-4 sentence explanation of what this means and whether it's worth investigating."""
+    try:
+        return {"ip": ip_address, "verdict": threat_data["overall_verdict"], "ai_explanation": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/ai/executive-summary/{ip_address}")
+def ai_executive_summary(ip_address: str, provider: str = None):
+    threat_data = unified_threat_check(ip_address)
+    prompt = f"""Write a short executive summary (max 5 sentences, no jargon) of this security finding for a non-technical manager.
+
+IP: {threat_data['ip']}
+Verdict: {threat_data['overall_verdict']}
+Signals found: {threat_data['malicious_signals']}
+Sources: {', '.join(threat_data['sources_checked'])}
+
+Focus on business impact and whether immediate action is needed."""
+    try:
+        return {"ip": ip_address, "executive_summary": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/ai/mitre-map/{ip_address}")
+def ai_mitre_map(ip_address: str, provider: str = None):
+    threat_data = unified_threat_check(ip_address)
+    prompt = f"""Based on this threat intelligence data, suggest which MITRE ATT&CK tactics and techniques (with IDs, e.g. T1071) are most likely relevant. If there isn't enough data to map confidently, say so.
+
+IP: {threat_data['ip']}
+Verdict: {threat_data['overall_verdict']}
+Details: {threat_data['details']}
+
+Return a short bulleted list of technique ID + name + one-line justification."""
+    try:
+        return {"ip": ip_address, "mitre_mapping": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/ai/cve/{cve_id}")
+def ai_cve_explain(cve_id: str, provider: str = None):
+    prompt = f"""Explain {cve_id} in plain language for a SOC analyst: what it is, what's affected, how it's typically exploited, and its rough severity. If you're not certain of the exact details, say so rather than guessing specifics."""
+    try:
+        return {"cve": cve_id, "explanation": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+class MalwareExplainRequest(BaseModel):
+    hash: str = None
+    filename: str = None
+    url: str = None
+
+
+@app.post("/ai/malware-explain")
+def ai_malware_explain(payload: MalwareExplainRequest, provider: str = None):
+    prompt = f"""A SOC analyst is investigating a possible malware artifact. Explain what this likely is and recommend next investigation steps.
+
+Hash: {payload.hash or 'not provided'}
+Filename: {payload.filename or 'not provided'}
+URL: {payload.url or 'not provided'}
+
+Keep it to 4-5 sentences. Recommend concrete next steps (e.g. check VirusTotal, sandbox detonation, isolate host)."""
+    try:
+        return {"input": payload.dict(), "ai_explanation": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/ai/recommend/{ip_address}")
+def ai_incident_recommendation(ip_address: str, provider: str = None):
+    threat_data = unified_threat_check(ip_address)
+    prompt = f"""Given this threat intel finding, recommend concrete SOC response actions (e.g. block IP, escalate, monitor, ignore) with brief justification.
+
+IP: {threat_data['ip']}
+Verdict: {threat_data['overall_verdict']}
+Malicious Signals: {threat_data['malicious_signals']}
+
+Return a short numbered list of recommended actions, ordered by priority."""
+    try:
+        return {"ip": ip_address, "recommendations": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/ai/threat-report/{ip_address}")
+def ai_threat_report(ip_address: str, provider: str = None):
+    threat_data = unified_threat_check(ip_address)
+    prompt = f"""Write a structured threat intelligence report for the following finding. Use these sections: Summary, Technical Details, MITRE ATT&CK Mapping, Recommended Actions.
+
+IP: {threat_data['ip']}
+Verdict: {threat_data['overall_verdict']}
+Malicious Signals: {threat_data['malicious_signals']}
+Sources Checked: {', '.join(threat_data['sources_checked'])}
+Details: {threat_data['details']}"""
+    try:
+        return {"ip": ip_address, "report": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
