@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 import os
 import requests
 from dotenv import load_dotenv
@@ -7,6 +7,9 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 from pydantic import BaseModel
+from typing import Optional
+from auth import verify_token
+from agents import run_threat_hunt, run_triage, run_malware_investigation, run_exec_report
 
 
 load_dotenv()
@@ -49,10 +52,10 @@ def call_ollama(prompt: str) -> str:
         )
         response.raise_for_status()
         data = response.json()
-        print("OLLAMA RAW RESPONSE:", data)  # debug line
+        print("OLLAMA RAW RESPONSE:", data)
         return data.get("response", "")
     except Exception as e:
-        print("OLLAMA ERROR:", e)  # debug line
+        print("OLLAMA ERROR:", e)
         raise
 
 
@@ -112,8 +115,11 @@ def root():
 def health():
     return {"status": "healthy"}
 
+
+# ── THREAT INTEL SOURCES (all now Keycloak-protected) ──
+
 @app.get("/threat-intel/ip/{ip_address}")
-def check_ip(ip_address: str):
+def check_ip(ip_address: str, user=Depends(verify_token)):
     headers = {"x-apikey": VT_API_KEY}
     url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip_address}"
     try:
@@ -132,7 +138,7 @@ def check_ip(ip_address: str):
         return {"error": str(e)}
 
 @app.get("/threat-intel/abuseipdb/{ip_address}")
-def check_ip_abuseipdb(ip_address: str):
+def check_ip_abuseipdb(ip_address: str, user=Depends(verify_token)):
     headers = {
         "Key": ABUSEIPDB_API_KEY,
         "Accept": "application/json"
@@ -154,7 +160,7 @@ def check_ip_abuseipdb(ip_address: str):
         return {"error": str(e)}
 
 @app.get("/threat-intel/otx/{ip_address}")
-def check_ip_otx(ip_address: str):
+def check_ip_otx(ip_address: str, user=Depends(verify_token)):
     headers = {"X-OTX-API-KEY": OTX_API_KEY}
     url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{ip_address}/general"
     try:
@@ -171,7 +177,7 @@ def check_ip_otx(ip_address: str):
         return {"error": str(e)}
 
 @app.get("/threat-intel/urlscan/{domain}")
-def check_domain_urlscan(domain: str):
+def check_domain_urlscan(domain: str, user=Depends(verify_token)):
     headers = {"API-Key": URLSCAN_API_KEY}
     url = f"https://urlscan.io/api/v1/search/?q=domain:{domain}"
     try:
@@ -193,7 +199,7 @@ def check_domain_urlscan(domain: str):
         return {"error": str(e)}
 
 @app.get("/threat-intel/shodan/{ip_address}")
-def check_ip_shodan(ip_address: str):
+def check_ip_shodan(ip_address: str, user=Depends(verify_token)):
     url = f"https://api.shodan.io/shodan/host/{ip_address}?key={SHODAN_API_KEY}"
     try:
         response = requests.get(url, timeout=10)
@@ -210,7 +216,8 @@ def check_ip_shodan(ip_address: str):
         return {"error": str(e)}
 
 
-@app.get("/threat-intel/check/{ip_address}")
+# ── Internal function (NOT an endpoint) — reused by AI features, agents, and the protected endpoint below.
+# Kept auth-free here because Depends() only works on HTTP-routed functions, not direct Python calls. ──
 def unified_threat_check(ip_address: str):
     result = {
         "ip": ip_address,
@@ -331,8 +338,13 @@ def unified_threat_check(ip_address: str):
     return result
 
 
+@app.get("/threat-intel/check/{ip_address}")
+def unified_threat_check_endpoint(ip_address: str, user=Depends(verify_token)):
+    return unified_threat_check(ip_address)
+
+
 @app.get("/threat-intel/history")
-def get_history():
+def get_history(user=Depends(verify_token)):
     db = SessionLocal()
     records = db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(20).all()
     db.close()
@@ -347,10 +359,26 @@ def get_history():
     ]
 
 
-# ── AI FEATURES (all 7 required by the assignment, all going through call_ai) ──
+# ── RAG helper — pulls this IP's own history from Postgres to give the AI memory ──
+def get_similar_past_incidents(ip_address: str, limit: int = 5):
+    db = SessionLocal()
+    records = db.query(Indicator).filter(
+        Indicator.ip_address == ip_address
+    ).order_by(Indicator.checked_at.desc()).limit(limit).all()
+    db.close()
+    return [
+        {
+            "verdict": r.verdict,
+            "malicious_signals": r.malicious_signals,
+            "checked_at": r.checked_at.isoformat()
+        } for r in records
+    ]
+
+
+# ── AI FEATURES (all 7 required by the assignment, all going through call_ai, all Keycloak-protected) ──
 
 @app.get("/ai/explain/{ip_address}")
-def ai_explain_ioc(ip_address: str, provider: str = None):
+def ai_explain_ioc(ip_address: str, provider: str = None, user=Depends(verify_token)):
     threat_data = unified_threat_check(ip_address)
     prompt = f"""You are a SOC analyst assistant. Explain this threat intelligence finding in simple, clear language for a security report.
 
@@ -368,7 +396,7 @@ Give a 3-4 sentence explanation of what this means and whether it's worth invest
 
 
 @app.get("/ai/executive-summary/{ip_address}")
-def ai_executive_summary(ip_address: str, provider: str = None):
+def ai_executive_summary(ip_address: str, provider: str = None, user=Depends(verify_token)):
     threat_data = unified_threat_check(ip_address)
     prompt = f"""Write a short executive summary (max 5 sentences, no jargon) of this security finding for a non-technical manager.
 
@@ -385,7 +413,7 @@ Focus on business impact and whether immediate action is needed."""
 
 
 @app.get("/ai/mitre-map/{ip_address}")
-def ai_mitre_map(ip_address: str, provider: str = None):
+def ai_mitre_map(ip_address: str, provider: str = None, user=Depends(verify_token)):
     threat_data = unified_threat_check(ip_address)
     prompt = f"""Based on this threat intelligence data, suggest which MITRE ATT&CK tactics and techniques (with IDs, e.g. T1071) are most likely relevant. If there isn't enough data to map confidently, say so.
 
@@ -401,7 +429,7 @@ Return a short bulleted list of technique ID + name + one-line justification."""
 
 
 @app.get("/ai/cve/{cve_id}")
-def ai_cve_explain(cve_id: str, provider: str = None):
+def ai_cve_explain(cve_id: str, provider: str = None, user=Depends(verify_token)):
     prompt = f"""Explain {cve_id} in plain language for a SOC analyst: what it is, what's affected, how it's typically exploited, and its rough severity. If you're not certain of the exact details, say so rather than guessing specifics."""
     try:
         return {"cve": cve_id, "explanation": call_ai(prompt, provider)}
@@ -410,13 +438,13 @@ def ai_cve_explain(cve_id: str, provider: str = None):
 
 
 class MalwareExplainRequest(BaseModel):
-    hash: str = None
-    filename: str = None
-    url: str = None
+    hash: Optional[str] = None
+    filename: Optional[str] = None
+    url: Optional[str] = None
 
 
 @app.post("/ai/malware-explain")
-def ai_malware_explain(payload: MalwareExplainRequest, provider: str = None):
+def ai_malware_explain(payload: MalwareExplainRequest, provider: str = None, user=Depends(verify_token)):
     prompt = f"""A SOC analyst is investigating a possible malware artifact. Explain what this likely is and recommend next investigation steps.
 
 Hash: {payload.hash or 'not provided'}
@@ -431,7 +459,7 @@ Keep it to 4-5 sentences. Recommend concrete next steps (e.g. check VirusTotal, 
 
 
 @app.get("/ai/recommend/{ip_address}")
-def ai_incident_recommendation(ip_address: str, provider: str = None):
+def ai_incident_recommendation(ip_address: str, provider: str = None, user=Depends(verify_token)):
     threat_data = unified_threat_check(ip_address)
     prompt = f"""Given this threat intel finding, recommend concrete SOC response actions (e.g. block IP, escalate, monitor, ignore) with brief justification.
 
@@ -447,7 +475,7 @@ Return a short numbered list of recommended actions, ordered by priority."""
 
 
 @app.get("/ai/threat-report/{ip_address}")
-def ai_threat_report(ip_address: str, provider: str = None):
+def ai_threat_report(ip_address: str, provider: str = None, user=Depends(verify_token)):
     threat_data = unified_threat_check(ip_address)
     prompt = f"""Write a structured threat intelligence report for the following finding. Use these sections: Summary, Technical Details, MITRE ATT&CK Mapping, Recommended Actions.
 
@@ -458,5 +486,93 @@ Sources Checked: {', '.join(threat_data['sources_checked'])}
 Details: {threat_data['details']}"""
     try:
         return {"ip": ip_address, "report": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── RAG endpoint — combines current finding + this IP's own history from Postgres ──
+@app.get("/ai/rag-explain/{ip_address}")
+def ai_rag_explain(ip_address: str, provider: str = None, user=Depends(verify_token)):
+    threat_data = unified_threat_check(ip_address)
+    past_incidents = get_similar_past_incidents(ip_address)
+
+    history_text = "No previous history found." if not past_incidents else "\n".join(
+        [f"- {p['checked_at']}: verdict={p['verdict']}, signals={p['malicious_signals']}" for p in past_incidents]
+    )
+
+    prompt = f"""You are a SOC analyst assistant with access to historical data.
+
+Current finding:
+IP: {threat_data['ip']}
+Verdict: {threat_data['overall_verdict']}
+Malicious Signals: {threat_data['malicious_signals']}
+
+Past history for this IP:
+{history_text}
+
+Using both the current finding AND the past history, explain whether this is a recurring threat pattern and what that means for prioritization."""
+    try:
+        return {"ip": ip_address, "past_incidents_count": len(past_incidents), "ai_explanation": call_ai(prompt, provider)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── AGENTIC AI ENDPOINTS (4 autonomous LangGraph agents, all Keycloak-protected) ──
+
+@app.get("/agents/threat-hunt/{ip_address}")
+def threat_hunt_agent_endpoint(ip_address: str, user=Depends(verify_token)):
+    try:
+        result = run_threat_hunt(ip_address)
+        return {
+            "ip": result["ip_address"],
+            "steps_taken": result["steps_taken"],
+            "findings": result["findings"],
+            "investigation_report": result["report"]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/agents/triage/{ip_address}")
+def triage_agent_endpoint(ip_address: str, user=Depends(verify_token)):
+    try:
+        result = run_triage(ip_address)
+        return {
+            "ip": result["ip_address"],
+            "severity": result["severity"],
+            "assigned_to": result["assigned_to"],
+            "reasoning": result["reasoning"]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/agents/malware-investigate")
+def malware_agent_endpoint(payload: MalwareExplainRequest, user=Depends(verify_token)):
+    try:
+        result = run_malware_investigation(
+            file_hash=payload.hash, filename=payload.filename, url=payload.url
+        )
+        return {
+            "input": payload.dict(),
+            "risk_level": result["risk_level"],
+            "vt_findings": result["vt_findings"],
+            "containment_recommendation": result["containment_recommendation"]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/agents/exec-report/{period}")
+def exec_report_agent_endpoint(period: str, user=Depends(verify_token)):
+    if period not in ["weekly", "monthly", "quarterly"]:
+        return {"error": "period must be one of: weekly, monthly, quarterly"}
+    try:
+        result = run_exec_report(period)
+        return {
+            "period": period,
+            "stats": result["stats"],
+            "report": result["report"]
+        }
     except Exception as e:
         return {"error": str(e)}
