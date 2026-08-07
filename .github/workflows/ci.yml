@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+  
 
 jobs:
   lint-and-test:
@@ -56,3 +58,4 @@ jobs:
           format: "table"
           exit-code: "0"
           severity: "CRITICAL,HIGH"
+          
