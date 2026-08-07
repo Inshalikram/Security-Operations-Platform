@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 from auth import verify_token
 from agents import run_threat_hunt, run_triage, run_malware_investigation, run_exec_report
+from fastapi.middleware.cors import CORSMiddleware
 
 
 load_dotenv()
@@ -33,6 +34,13 @@ class Indicator(Base):
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Security Operations Platform API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 VT_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
 ABUSEIPDB_API_KEY = os.getenv("ABUSEIPDB_API_KEY")
