@@ -125,12 +125,105 @@ services:
       - misp_db_data:/var/lib/mysql
     networks:
       - sop-network
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.9.0
+    container_name: sop-wazuh-manager
+    restart: unless-stopped
+    ports:
+      - "1514:1514"
+      - "1515:1515"
+      - "55000:55000"
+    environment:
+      - INDEXER_URL=https://wazuh-indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecretPassword1
+      - FILEBEAT_SSL_VERIFICATION_MODE=none
+    networks:
+      - sop-network
 
+  suricata:
+    image: jasonish/suricata:latest
+    container_name: sop-suricata
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    command: ["suricata", "-i", "eth0", "--pcap-file-continuous"]
+    volumes:
+      - suricata_logs:/var/log/suricata
+    networks:
+      - sop-network
+
+  zeek:
+    image: zeek/zeek:latest
+    container_name: sop-zeek
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "tail -f /dev/null"]
+    volumes:
+      - zeek_logs:/zeek-logs
+    networks:
+      - sop-network
+
+  falco:
+    image: falcosecurity/falco:latest
+    container_name: sop-falco
+    restart: unless-stopped
+    privileged: true
+    pid: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /dev:/host/dev
+      - /proc:/host/proc:ro
+      - /boot:/host/boot:ro
+      - /lib/modules:/host/lib/modules:ro
+      - /usr:/host/usr:ro
+      - /etc:/host/etc:ro
+    networks:
+      - sop-network
+  traefik:
+    image: traefik:v3.0
+    container_name: sop-traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--accesslog=true"
+    ports:
+      - "80:80"
+      - "8081:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic
+    restart: unless-stopped
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sop-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql://sop_admin:changeme@postgres:5432/sop_db
+      - KEYCLOAK_URL=http://keycloak:8080
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - sop-network
 volumes:
   postgres_data:
   minio_data:
   misp_db_data:
+  suricata_logs:
+  zeek_logs:
 
 networks:
   sop-network:
     driver: bridge
+

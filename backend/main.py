@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-DATABASE_URL = "postgresql://sop_admin:changeme@127.0.0.1:5432/sop_db"
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://sop_admin:changeme@127.0.0.1:5432/sop_db")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
