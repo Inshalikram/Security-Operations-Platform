@@ -11,6 +11,8 @@ from typing import Optional
 from auth import verify_token
 from agents import run_threat_hunt, run_triage, run_malware_investigation, run_exec_report
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import WebSocket, WebSocketDisconnect
+import json
 
 
 load_dotenv()
@@ -34,6 +36,29 @@ class Indicator(Base):
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Security Operations Platform API")
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        dead_connections = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                dead_connections.append(connection)
+        for dead in dead_connections:
+            self.disconnect(dead)
+
+manager = ConnectionManager()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -53,8 +78,9 @@ THEHIVE_URL = os.getenv("THEHIVE_URL")
 
 def call_ollama(prompt: str) -> str:
     try:
+        ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
         response = requests.post(
-            "http://localhost:11434/api/generate",
+            f"{ollama_url}/api/generate",
             json={"model": "llama3.2", "prompt": prompt, "stream": False},
             timeout=120
         )
@@ -65,7 +91,6 @@ def call_ollama(prompt: str) -> str:
     except Exception as e:
         print("OLLAMA ERROR:", e)
         raise
-
 
 # ── AI GATEWAY — supports OpenAI, Gemini, Ollama, DeepSeek, Qwen ──
 AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama")
@@ -320,6 +345,18 @@ def unified_threat_check(ip_address: str):
     db.add(new_record)
     db.commit()
     db.close()
+    # Broadcast to WebSocket clients (fire-and-forget, safe even if no clients connected)
+    try:
+        import asyncio
+        asyncio.run(manager.broadcast({
+            "type": "new_alert",
+            "ip": result["ip"],
+            "verdict": result["overall_verdict"],
+            "malicious_signals": result["malicious_signals"]
+        }))
+    except Exception:
+        pass  # don't let broadcast failure break the main response
+    
     # Auto-create TheHive case if suspicious or malicious
     if result["overall_verdict"] in ["malicious", "suspicious"]:
         try:
@@ -584,3 +621,11 @@ def exec_report_agent_endpoint(period: str, user=Depends(verify_token)):
         }
     except Exception as e:
         return {"error": str(e)}
+@app.websocket("/ws/alerts")
+async def websocket_alerts(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # keeps connection alive, ignores client messages
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)

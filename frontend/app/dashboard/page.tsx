@@ -1,4 +1,4 @@
-import { auth } from "@/auth"
+import { auth, signOut } from "@/auth"
 import { redirect } from "next/navigation"
 import {
   Table,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Shield, AlertTriangle, ShieldAlert, Activity } from "lucide-react"
 import DashboardChart from "@/components/dashboard-chart"
 
@@ -81,6 +82,16 @@ export default async function Dashboard() {
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-rose-500 text-sm font-medium text-white">
               {(session.user?.name || "U").charAt(0)}
             </div>
+            <form
+              action={async () => {
+                "use server"
+                await signOut({ redirectTo: "/" })
+              }}
+            >
+              <Button type="submit" variant="outline" size="sm" className="border-white/10 text-slate-300 hover:bg-white/5">
+                Sign Out
+              </Button>
+            </form>
           </div>
         </div>
       </header>
