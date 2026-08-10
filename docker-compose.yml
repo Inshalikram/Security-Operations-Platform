@@ -208,7 +208,9 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://sop_admin:changeme@postgres:5432/sop_db
-      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_URL=http://localhost:8080
+      - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
+      - OLLAMA_URL=http://host.docker.internal:11434
     ports:
       - "8000:8000"
     depends_on:
@@ -216,6 +218,7 @@ services:
     restart: unless-stopped
     networks:
       - sop-network
+
 volumes:
   postgres_data:
   minio_data:

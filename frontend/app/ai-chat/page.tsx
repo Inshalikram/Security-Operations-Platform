@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useSession } from "next-auth/react"
+import { signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,14 +51,24 @@ export default function AIChat() {
       </div>
 
       <header className="relative border-b border-white/5 bg-white/[0.02] px-8 py-5 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-rose-500 shadow-lg shadow-violet-500/20">
-            <Sparkles className="h-5 w-5 text-white" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-rose-500 shadow-lg shadow-violet-500/20">
+              <Sparkles className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold leading-tight text-white">AI Analyst Console</h1>
+              <p className="text-xs text-slate-500">IOC Lookup &amp; Agentic Investigation</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-semibold leading-tight text-white">AI Analyst Console</h1>
-            <p className="text-xs text-slate-500">IOC Lookup &amp; Agentic Investigation</p>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-white/10 text-slate-300 hover:bg-white/5"
+            onClick={() => signOut({ callbackUrl: "/" })}
+          >
+            Sign Out
+          </Button>
         </div>
       </header>
 
