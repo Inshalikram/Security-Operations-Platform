@@ -13,7 +13,8 @@ from agents import run_threat_hunt, run_triage, run_malware_investigation, run_e
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocket, WebSocketDisconnect
 import json
-
+import yara
+import yaml
 
 load_dotenv()
 
@@ -91,6 +92,56 @@ def call_ollama(prompt: str) -> str:
     except Exception as e:
         print("OLLAMA ERROR:", e)
         raise
+# ── YARA — malware pattern scanning ──
+YARA_RULES_PATH = os.path.join(os.path.dirname(__file__), "rules", "yara", "suspicious_patterns.yar")
+_yara_rules = None
+
+def get_yara_rules():
+    global _yara_rules
+    if _yara_rules is None:
+        _yara_rules = yara.compile(filepath=YARA_RULES_PATH)
+    return _yara_rules
+
+def scan_with_yara(data: bytes):
+    rules = get_yara_rules()
+    matches = rules.match(data=data)
+    return [
+        {
+            "rule": m.rule,
+            "severity": m.meta.get("severity", "unknown"),
+            "description": m.meta.get("description", ""),
+            "mitre_technique": m.meta.get("mitre_technique", "N/A"),
+        }
+        for m in matches
+    ]
+SIGMA_RULES_DIR = os.path.join(os.path.dirname(__file__), "rules", "sigma")
+
+def load_sigma_rules():
+    rules = []
+    if not os.path.isdir(SIGMA_RULES_DIR):
+        return rules
+    for filename in os.listdir(SIGMA_RULES_DIR):
+        if filename.endswith((".yml", ".yaml")):
+            with open(os.path.join(SIGMA_RULES_DIR, filename), "r") as f:
+                rules.append(yaml.safe_load(f))
+    return rules
+
+def evaluate_sigma_rules(log_event: dict):
+    matched = []
+    for rule in load_sigma_rules():
+        selection = rule.get("detection", {}).get("selection", {})
+        if all(log_event.get(k) == v for k, v in selection.items()):
+            matched.append({
+                "rule_title": rule.get("title"),
+                "level": rule.get("level"),
+                "tags": rule.get("tags", []),
+                "description": rule.get("description")
+            })
+    return matched
+
+class SigmaEvaluateRequest(BaseModel):
+    log_event: dict
+
 
 # ── AI GATEWAY — supports OpenAI, Gemini, Ollama, DeepSeek, Qwen ──
 AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama")
@@ -629,3 +680,25 @@ async def websocket_alerts(websocket: WebSocket):
             await websocket.receive_text()  # keeps connection alive, ignores client messages
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+class YaraScanRequest(BaseModel):
+    content: str  # raw text/code to scan (e.g. a suspicious script's contents)
+
+@app.post("/yara/scan")
+def yara_scan(payload: YaraScanRequest, user=Depends(verify_token)):
+    try:
+        matches = scan_with_yara(payload.content.encode("utf-8"))
+        return {
+            "scanned_bytes": len(payload.content),
+            "matches_found": len(matches),
+            "matches": matches
+        }
+    except Exception as e:
+        return {"error": str(e)}
+@app.post("/sigma/evaluate")
+def sigma_evaluate(payload: SigmaEvaluateRequest, user=Depends(verify_token)):
+    matches = evaluate_sigma_rules(payload.log_event)
+    return {"log_event": payload.log_event, "matched_rules": matches}
+
+@app.get("/sigma/rules")
+def list_sigma_rules(user=Depends(verify_token)):
+    return load_sigma_rules()

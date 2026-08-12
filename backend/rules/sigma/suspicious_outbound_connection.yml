@@ -1,0 +1,18 @@
+title: Suspicious Outbound Connection to Known Malicious IP
+id: 8a3f1e20-1234-4a1b-9c3e-outbound001
+status: stable
+description: Detects outbound network connections to IPs flagged as malicious by threat intelligence
+references:
+    - https://attack.mitre.org/techniques/T1071/
+tags:
+    - attack.command_and_control
+    - attack.t1071
+logsource:
+    category: network_connection
+detection:
+    selection:
+        destination_verdict: "malicious"
+    condition: selection
+falsepositives:
+    - Threat intel false positive
+level: critical
