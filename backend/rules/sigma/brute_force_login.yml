@@ -1,0 +1,19 @@
+title: Multiple Failed Login Attempts (Brute Force)
+id: 8a3f1e20-1234-4a1b-9c3e-brute001
+status: stable
+description: Detects multiple failed authentication attempts from the same source, indicating a possible brute-force attack
+references:
+    - https://attack.mitre.org/techniques/T1110/
+tags:
+    - attack.credential_access
+    - attack.t1110
+logsource:
+    category: authentication
+detection:
+    selection:
+        event_type: "failed_login"
+    timeframe: 5m
+    condition: selection | count() by src_ip > 5
+falsepositives:
+    - Legitimate user with forgotten password
+level: high
