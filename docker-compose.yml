@@ -199,6 +199,36 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/dynamic:/etc/traefik/dynamic
     restart: unless-stopped
+#   backend:
+#     build:
+#       context: ./backend
+#       dockerfile: Dockerfile
+#     container_name: sop-backend
+#     env_file:
+#       - ./backend/.env
+#     environment:
+#       - DATABASE_URL=postgresql://sop_admin:changeme@postgres:5432/sop_db
+#       - KEYCLOAK_URL=http://localhost:8080
+#       - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
+#       - OLLAMA_URL=http://host.docker.internal:11434
+#     ports:
+#       - "8000:8000"
+#     depends_on:
+#       - postgres
+#     restart: unless-stopped
+#     networks:
+#       - sop-network
+
+# volumes:
+#   postgres_data:
+#   minio_data:
+#   misp_db_data:
+#   suricata_logs:
+#   zeek_logs:
+
+# networks:
+#   sop-network:
+#     driver: bridge
   backend:
     build:
       context: ./backend
@@ -219,14 +249,33 @@ services:
     networks:
       - sop-network
 
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: sop-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=Asia/Karachi
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme123
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - sop-network
+
 volumes:
   postgres_data:
   minio_data:
   misp_db_data:
   suricata_logs:
   zeek_logs:
+  n8n_data:
 
 networks:
   sop-network:
     driver: bridge
-
