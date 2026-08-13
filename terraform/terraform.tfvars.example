@@ -1,0 +1,8 @@
+ovh_auth_url         = "https://auth.cloud.ovh.net/v3"
+ovh_project_id       = "your-project-id-here"
+ovh_username         = "your-ovh-openstack-user"
+ovh_password         = "your-ovh-openstack-password"
+ovh_region           = "GRA7"
+instance_flavor      = "b2-15"
+ssh_keypair_name     = "your-ssh-key-name"
+external_network_name = "Ext-Net"
