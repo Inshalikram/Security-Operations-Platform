@@ -1,0 +1,12 @@
+#cloud-config
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-plugin
+  - git
+
+runcmd:
+  - systemctl enable docker
+  - systemctl start docker
+  - git clone https://github.com/Inshalikram/Security-Operations-Platform.git /opt/soc
+  - cd /opt/soc && docker compose up -d
