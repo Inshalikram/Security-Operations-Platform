@@ -62,3 +62,4 @@ yara-python
 pytest
 pytest-asyncio
 httpx
+prometheus-fastapi-instrumentator

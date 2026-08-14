@@ -15,6 +15,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 import json
 import yara
 import yaml
+from prometheus_fastapi_instrumentator import Instrumentator
 
 load_dotenv()
 
@@ -37,6 +38,7 @@ class Indicator(Base):
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Security Operations Platform API")
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []

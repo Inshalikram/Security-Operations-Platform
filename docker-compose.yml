@@ -248,7 +248,32 @@ services:
     restart: unless-stopped
     networks:
       - sop-network
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sop-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - sop-network
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sop-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - sop-network
   n8n:
     image: n8nio/n8n:latest
     container_name: sop-n8n
@@ -275,6 +300,7 @@ volumes:
   suricata_logs:
   zeek_logs:
   n8n_data:
+  grafana_data:
 
 networks:
   sop-network:
