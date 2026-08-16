@@ -16,6 +16,7 @@ import json
 import yara
 import yaml
 from prometheus_fastapi_instrumentator import Instrumentator
+from auth import verify_token_string
 
 load_dotenv()
 
@@ -116,6 +117,11 @@ def scan_with_yara(data: bytes):
         }
         for m in matches
     ]
+
+# ── Request model for the /yara/scan endpoint (this was missing — caused the startup crash) ──
+class YaraScanRequest(BaseModel):
+    content: str
+
 SIGMA_RULES_DIR = os.path.join(os.path.dirname(__file__), "rules", "sigma")
 
 def load_sigma_rules():
@@ -409,7 +415,7 @@ def unified_threat_check(ip_address: str):
         }))
     except Exception:
         pass  # don't let broadcast failure break the main response
-    
+
     # Auto-create TheHive case if suspicious or malicious
     if result["overall_verdict"] in ["malicious", "suspicious"]:
         try:
@@ -674,16 +680,27 @@ def exec_report_agent_endpoint(period: str, user=Depends(verify_token)):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
 @app.websocket("/ws/alerts")
-async def websocket_alerts(websocket: WebSocket):
+async def websocket_alerts(websocket: WebSocket, token: str = None):
+    if not token:
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return
+
+    try:
+        verify_token_string(token)
+    except ValueError as e:
+        await websocket.close(code=1008, reason=str(e))
+        return
+
     await manager.connect(websocket)
     try:
         while True:
             await websocket.receive_text()  # keeps connection alive, ignores client messages
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-class YaraScanRequest(BaseModel):
-    content: str  # raw text/code to scan (e.g. a suspicious script's contents)
+
 
 @app.post("/yara/scan")
 def yara_scan(payload: YaraScanRequest, user=Depends(verify_token)):
@@ -696,6 +713,8 @@ def yara_scan(payload: YaraScanRequest, user=Depends(verify_token)):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
 @app.post("/sigma/evaluate")
 def sigma_evaluate(payload: SigmaEvaluateRequest, user=Depends(verify_token)):
     matches = evaluate_sigma_rules(payload.log_event)
@@ -704,3 +723,25 @@ def sigma_evaluate(payload: SigmaEvaluateRequest, user=Depends(verify_token)):
 @app.get("/sigma/rules")
 def list_sigma_rules(user=Depends(verify_token)):
     return load_sigma_rules()
+# MISP_URL = os.getenv("MISP_URL")
+# MISP_API_KEY = os.getenv("MISP_API_KEY")
+
+# @app.get("/threat-intel/misp/{ip_address}")
+# def check_ip_misp(ip_address: str, user=Depends(verify_token)):
+#     headers = {
+#         "Authorization": MISP_API_KEY,
+#         "Accept": "application/json",
+#         "Content-Type": "application/json"
+#     }
+#     payload = {"returnFormat": "json", "value": ip_address, "type": "ip-src"}
+#     try:
+#         response = requests.post(f"{MISP_URL}/attributes/restSearch", headers=headers, json=payload, timeout=15, verify=False)
+#         data = response.json()
+#         attributes = data.get("response", {}).get("Attribute", [])
+#         return {
+#             "ip": ip_address,
+#             "matches_found": len(attributes),
+#             "events": [{"event_id": a.get("event_id"), "category": a.get("category")} for a in attributes]
+#         }
+#     except Exception as e:
+#         return {"error": str(e)}
