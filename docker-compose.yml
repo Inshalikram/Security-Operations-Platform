@@ -104,10 +104,10 @@ services:
       MYSQL_PASSWORD: misp123
       MISP_ADMIN_EMAIL: admin@sop.local
       MISP_ADMIN_PASSPHRASE: admin123
-      MISP_BASEURL: http://localhost:9004
+      MISP_BASEURL: https://localhost:9004
       CRON_USER_ID: "1"
     ports:
-      - "9004:80"
+      - "9004:443"
     depends_on:
       - misp-db
     networks:
