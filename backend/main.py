@@ -16,7 +16,15 @@ import json
 import yara
 import yaml
 from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Gauge
 from auth import verify_token_string
+
+# ── OpenTelemetry tracing (exports to Tempo) ──
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 load_dotenv()
 
@@ -40,6 +48,43 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Security Operations Platform API")
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+# ── Tracing setup — exports spans to Tempo over OTLP/gRPC ──
+_otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo:4317")
+trace.set_tracer_provider(TracerProvider())
+_tempo_exporter = OTLPSpanExporter(endpoint=_otel_endpoint, insecure=True)
+trace.get_tracer_provider().add_span_processor(BatchSpanProcessor(_tempo_exporter))
+FastAPIInstrumentor.instrument_app(app)
+
+# ── Custom business metrics (beyond auto-tracked HTTP requests) ──
+INCIDENTS_CREATED = Counter(
+    'soc_incidents_created_total',
+    'Total number of Hive incidents auto-created'
+)
+THREAT_VERDICTS = Counter(
+    'soc_threat_verdicts_total',
+    'Total threat verdicts by type',
+    ['verdict']
+)
+
+# ── AI Gateway request tracking (for the "AI requests" dashboard) ──
+AI_REQUESTS = Counter(
+    'soc_ai_requests_total',
+    'Total AI Gateway requests by provider and feature',
+    ['provider', 'feature']
+)
+AI_REQUEST_FAILURES = Counter(
+    'soc_ai_request_failures_total',
+    'Total failed AI Gateway requests by provider and feature',
+    ['provider', 'feature']
+)
+
+# ── Queue size proxy: active WebSocket alert subscribers (for the "queue sizes" dashboard) ──
+ACTIVE_WS_CONNECTIONS = Gauge(
+    'soc_active_websocket_connections',
+    'Current number of connected WebSocket alert clients'
+)
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -47,10 +92,12 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        ACTIVE_WS_CONNECTIONS.set(len(self.active_connections))
 
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+        ACTIVE_WS_CONNECTIONS.set(len(self.active_connections))
 
     async def broadcast(self, message: dict):
         dead_connections = []
@@ -191,12 +238,19 @@ PROVIDERS = {
     "qwen": call_qwen,
 }
 
-def call_ai(prompt: str, provider: str = None) -> str:
-    """The AI Gateway required by the assignment — routes to any of the 5 providers."""
+def call_ai(prompt: str, provider: str = None, feature: str = "generic") -> str:
+    """The AI Gateway required by the assignment — routes to any of the 5 providers.
+    `feature` labels which AI capability triggered the call (explain_ioc, executive_summary, etc.)
+    so the Grafana 'AI requests' dashboard can break volume down per feature and per provider."""
     provider = (provider or AI_PROVIDER).lower()
     if provider not in PROVIDERS:
         raise ValueError(f"Unknown AI provider '{provider}'. Choose from: {list(PROVIDERS.keys())}")
-    return PROVIDERS[provider](prompt)
+    AI_REQUESTS.labels(provider=provider, feature=feature).inc()
+    try:
+        return PROVIDERS[provider](prompt)
+    except Exception:
+        AI_REQUEST_FAILURES.labels(provider=provider, feature=feature).inc()
+        raise
 
 
 @app.get("/")
@@ -392,6 +446,9 @@ def unified_threat_check(ip_address: str):
     else:
         result["overall_verdict"] = "clean"
 
+    # ── Track detection rate by verdict type ──
+    THREAT_VERDICTS.labels(verdict=result["overall_verdict"]).inc()
+
     # Save to database
     db = SessionLocal()
     new_record = Indicator(
@@ -437,14 +494,23 @@ def unified_threat_check(ip_address: str):
                 timeout=10
             )
             result["thehive_case"] = hive_resp.json() if hive_resp.status_code < 300 else {"error": hive_resp.text}
+            # ── Track incident creation rate ──
+            if hive_resp.status_code < 300:
+                INCIDENTS_CREATED.inc()
         except Exception as e:
             result["thehive_case"] = {"error": str(e)}
     return result
 
 
+# ── FIX: wrapped in try/except so ANY unexpected failure inside unified_threat_check
+# (Keycloak timeout, DB drop, network glitch) returns a readable JSON error instead of
+# an uncaught 500 with no detail. ──
 @app.get("/threat-intel/check/{ip_address}")
 def unified_threat_check_endpoint(ip_address: str, user=Depends(verify_token)):
-    return unified_threat_check(ip_address)
+    try:
+        return unified_threat_check(ip_address)
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/threat-intel/history")
@@ -480,11 +546,15 @@ def get_similar_past_incidents(ip_address: str, limit: int = 5):
 
 
 # ── AI FEATURES (all 7 required by the assignment, all going through call_ai, all Keycloak-protected) ──
+# NOTE: unified_threat_check(...) is now called INSIDE the try block in every endpoint below,
+# so any failure there (Keycloak timeout, DB error, network glitch) returns a readable
+# {"error": "..."} JSON response instead of an uncaught, detail-less 500.
 
 @app.get("/ai/explain/{ip_address}")
 def ai_explain_ioc(ip_address: str, provider: str = None, user=Depends(verify_token)):
-    threat_data = unified_threat_check(ip_address)
-    prompt = f"""You are a SOC analyst assistant. Explain this threat intelligence finding in simple, clear language for a security report.
+    try:
+        threat_data = unified_threat_check(ip_address)
+        prompt = f"""You are a SOC analyst assistant. Explain this threat intelligence finding in simple, clear language for a security report.
 
 IP Address: {threat_data['ip']}
 Overall Verdict: {threat_data['overall_verdict']}
@@ -493,16 +563,16 @@ Sources Checked: {', '.join(threat_data['sources_checked'])}
 Details: {threat_data['details']}
 
 Give a 3-4 sentence explanation of what this means and whether it's worth investigating."""
-    try:
-        return {"ip": ip_address, "verdict": threat_data["overall_verdict"], "ai_explanation": call_ai(prompt, provider)}
+        return {"ip": ip_address, "verdict": threat_data["overall_verdict"], "ai_explanation": call_ai(prompt, provider, feature="explain_ioc")}
     except Exception as e:
         return {"error": str(e)}
 
 
 @app.get("/ai/executive-summary/{ip_address}")
 def ai_executive_summary(ip_address: str, provider: str = None, user=Depends(verify_token)):
-    threat_data = unified_threat_check(ip_address)
-    prompt = f"""Write a short executive summary (max 5 sentences, no jargon) of this security finding for a non-technical manager.
+    try:
+        threat_data = unified_threat_check(ip_address)
+        prompt = f"""Write a short executive summary (max 5 sentences, no jargon) of this security finding for a non-technical manager.
 
 IP: {threat_data['ip']}
 Verdict: {threat_data['overall_verdict']}
@@ -510,24 +580,23 @@ Signals found: {threat_data['malicious_signals']}
 Sources: {', '.join(threat_data['sources_checked'])}
 
 Focus on business impact and whether immediate action is needed."""
-    try:
-        return {"ip": ip_address, "executive_summary": call_ai(prompt, provider)}
+        return {"ip": ip_address, "executive_summary": call_ai(prompt, provider, feature="executive_summary")}
     except Exception as e:
         return {"error": str(e)}
 
 
 @app.get("/ai/mitre-map/{ip_address}")
 def ai_mitre_map(ip_address: str, provider: str = None, user=Depends(verify_token)):
-    threat_data = unified_threat_check(ip_address)
-    prompt = f"""Based on this threat intelligence data, suggest which MITRE ATT&CK tactics and techniques (with IDs, e.g. T1071) are most likely relevant. If there isn't enough data to map confidently, say so.
+    try:
+        threat_data = unified_threat_check(ip_address)
+        prompt = f"""Based on this threat intelligence data, suggest which MITRE ATT&CK tactics and techniques (with IDs, e.g. T1071) are most likely relevant. If there isn't enough data to map confidently, say so.
 
 IP: {threat_data['ip']}
 Verdict: {threat_data['overall_verdict']}
 Details: {threat_data['details']}
 
 Return a short bulleted list of technique ID + name + one-line justification."""
-    try:
-        return {"ip": ip_address, "mitre_mapping": call_ai(prompt, provider)}
+        return {"ip": ip_address, "mitre_mapping": call_ai(prompt, provider, feature="mitre_map")}
     except Exception as e:
         return {"error": str(e)}
 
@@ -536,7 +605,7 @@ Return a short bulleted list of technique ID + name + one-line justification."""
 def ai_cve_explain(cve_id: str, provider: str = None, user=Depends(verify_token)):
     prompt = f"""Explain {cve_id} in plain language for a SOC analyst: what it is, what's affected, how it's typically exploited, and its rough severity. If you're not certain of the exact details, say so rather than guessing specifics."""
     try:
-        return {"cve": cve_id, "explanation": call_ai(prompt, provider)}
+        return {"cve": cve_id, "explanation": call_ai(prompt, provider, feature="cve_explain")}
     except Exception as e:
         return {"error": str(e)}
 
@@ -557,39 +626,39 @@ URL: {payload.url or 'not provided'}
 
 Keep it to 4-5 sentences. Recommend concrete next steps (e.g. check VirusTotal, sandbox detonation, isolate host)."""
     try:
-        return {"input": payload.dict(), "ai_explanation": call_ai(prompt, provider)}
+        return {"input": payload.dict(), "ai_explanation": call_ai(prompt, provider, feature="malware_explain")}
     except Exception as e:
         return {"error": str(e)}
 
 
 @app.get("/ai/recommend/{ip_address}")
 def ai_incident_recommendation(ip_address: str, provider: str = None, user=Depends(verify_token)):
-    threat_data = unified_threat_check(ip_address)
-    prompt = f"""Given this threat intel finding, recommend concrete SOC response actions (e.g. block IP, escalate, monitor, ignore) with brief justification.
+    try:
+        threat_data = unified_threat_check(ip_address)
+        prompt = f"""Given this threat intel finding, recommend concrete SOC response actions (e.g. block IP, escalate, monitor, ignore) with brief justification.
 
 IP: {threat_data['ip']}
 Verdict: {threat_data['overall_verdict']}
 Malicious Signals: {threat_data['malicious_signals']}
 
 Return a short numbered list of recommended actions, ordered by priority."""
-    try:
-        return {"ip": ip_address, "recommendations": call_ai(prompt, provider)}
+        return {"ip": ip_address, "recommendations": call_ai(prompt, provider, feature="recommend")}
     except Exception as e:
         return {"error": str(e)}
 
 
 @app.get("/ai/threat-report/{ip_address}")
 def ai_threat_report(ip_address: str, provider: str = None, user=Depends(verify_token)):
-    threat_data = unified_threat_check(ip_address)
-    prompt = f"""Write a structured threat intelligence report for the following finding. Use these sections: Summary, Technical Details, MITRE ATT&CK Mapping, Recommended Actions.
+    try:
+        threat_data = unified_threat_check(ip_address)
+        prompt = f"""Write a structured threat intelligence report for the following finding. Use these sections: Summary, Technical Details, MITRE ATT&CK Mapping, Recommended Actions.
 
 IP: {threat_data['ip']}
 Verdict: {threat_data['overall_verdict']}
 Malicious Signals: {threat_data['malicious_signals']}
 Sources Checked: {', '.join(threat_data['sources_checked'])}
 Details: {threat_data['details']}"""
-    try:
-        return {"ip": ip_address, "report": call_ai(prompt, provider)}
+        return {"ip": ip_address, "report": call_ai(prompt, provider, feature="threat_report")}
     except Exception as e:
         return {"error": str(e)}
 
@@ -597,14 +666,15 @@ Details: {threat_data['details']}"""
 # ── RAG endpoint — combines current finding + this IP's own history from Postgres ──
 @app.get("/ai/rag-explain/{ip_address}")
 def ai_rag_explain(ip_address: str, provider: str = None, user=Depends(verify_token)):
-    threat_data = unified_threat_check(ip_address)
-    past_incidents = get_similar_past_incidents(ip_address)
+    try:
+        threat_data = unified_threat_check(ip_address)
+        past_incidents = get_similar_past_incidents(ip_address)
 
-    history_text = "No previous history found." if not past_incidents else "\n".join(
-        [f"- {p['checked_at']}: verdict={p['verdict']}, signals={p['malicious_signals']}" for p in past_incidents]
-    )
+        history_text = "No previous history found." if not past_incidents else "\n".join(
+            [f"- {p['checked_at']}: verdict={p['verdict']}, signals={p['malicious_signals']}" for p in past_incidents]
+        )
 
-    prompt = f"""You are a SOC analyst assistant with access to historical data.
+        prompt = f"""You are a SOC analyst assistant with access to historical data.
 
 Current finding:
 IP: {threat_data['ip']}
@@ -615,8 +685,7 @@ Past history for this IP:
 {history_text}
 
 Using both the current finding AND the past history, explain whether this is a recurring threat pattern and what that means for prioritization."""
-    try:
-        return {"ip": ip_address, "past_incidents_count": len(past_incidents), "ai_explanation": call_ai(prompt, provider)}
+        return {"ip": ip_address, "past_incidents_count": len(past_incidents), "ai_explanation": call_ai(prompt, provider, feature="rag_explain")}
     except Exception as e:
         return {"error": str(e)}
 

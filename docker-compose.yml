@@ -40,6 +40,7 @@ services:
       - minio_data:/data
     networks:
       - sop-network
+
   keycloak:
     image: quay.io/keycloak/keycloak:latest
     container_name: sop-keycloak
@@ -58,6 +59,7 @@ services:
       - postgres
     networks:
       - sop-network
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
     container_name: sop-elasticsearch
@@ -70,6 +72,7 @@ services:
       - "9200:9200"
     networks:
       - sop-network
+
   cortex:
     image: thehiveproject/cortex:3.1.7-1
     container_name: sop-cortex
@@ -93,6 +96,7 @@ services:
       JVM_OPTS: "-Xms1G -Xmx1G"
     networks:
       - sop-network
+
   misp:
     image: coolacid/misp-docker:core-latest
     container_name: sop-misp
@@ -112,6 +116,7 @@ services:
       - misp-db
     networks:
       - sop-network
+
   misp-db:
     image: mysql:8.0
     container_name: sop-misp-db
@@ -125,6 +130,7 @@ services:
       - misp_db_data:/var/lib/mysql
     networks:
       - sop-network
+
   wazuh-manager:
     image: wazuh/wazuh-manager:4.9.0
     container_name: sop-wazuh-manager
@@ -181,6 +187,7 @@ services:
       - /etc:/host/etc:ro
     networks:
       - sop-network
+
   traefik:
     image: traefik:v3.0
     container_name: sop-traefik
@@ -199,36 +206,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/dynamic:/etc/traefik/dynamic
     restart: unless-stopped
-#   backend:
-#     build:
-#       context: ./backend
-#       dockerfile: Dockerfile
-#     container_name: sop-backend
-#     env_file:
-#       - ./backend/.env
-#     environment:
-#       - DATABASE_URL=postgresql://sop_admin:changeme@postgres:5432/sop_db
-#       - KEYCLOAK_URL=http://localhost:8080
-#       - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
-#       - OLLAMA_URL=http://host.docker.internal:11434
-#     ports:
-#       - "8000:8000"
-#     depends_on:
-#       - postgres
-#     restart: unless-stopped
-#     networks:
-#       - sop-network
 
-# volumes:
-#   postgres_data:
-#   minio_data:
-#   misp_db_data:
-#   suricata_logs:
-#   zeek_logs:
-
-# networks:
-#   sop-network:
-#     driver: bridge
   backend:
     build:
       context: ./backend
@@ -238,9 +216,11 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://sop_admin:changeme@postgres:5432/sop_db
-      - KEYCLOAK_URL=http://localhost:8080
+      # - KEYCLOAK_URL=http://localhost:8080
+      - KEYCLOAK_URL=http://127.0.0.1:8080 
       - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
       - OLLAMA_URL=http://host.docker.internal:11434
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
     ports:
       - "8000:8000"
     depends_on:
@@ -248,6 +228,7 @@ services:
     restart: unless-stopped
     networks:
       - sop-network
+
   prometheus:
     image: prom/prometheus:latest
     container_name: sop-prometheus
@@ -267,13 +248,16 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin123
     ports:
-      - "3001:3000"
+      - "3002:3000"
     volumes:
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
+      - loki
+      - tempo
     networks:
       - sop-network
+
   n8n:
     image: n8nio/n8n:latest
     container_name: sop-n8n
@@ -290,6 +274,58 @@ services:
       - N8N_BASIC_AUTH_PASSWORD=changeme123
     volumes:
       - n8n_data:/home/node/.n8n
+    networks:
+      - sop-network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: sop-cadvisor
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - sop-network
+
+  loki:
+    image: grafana/loki:latest
+    container_name: sop-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - sop-network
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: sop-promtail
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./observability/promtail.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - sop-network
+    depends_on:
+      - loki
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: sop-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
     networks:
       - sop-network
 
