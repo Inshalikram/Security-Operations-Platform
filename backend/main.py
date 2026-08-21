@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request, HTTPException
 import os
 import requests
 from dotenv import load_dotenv
@@ -42,7 +42,55 @@ class Indicator(Base):
     malicious_signals = Column(Integer)
     sources_checked = Column(JSON)
     details = Column(JSON)
+    country = Column(String, nullable=True)  # ── used by the Threat Map dashboard ──
     checked_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Asset inventory (for the frontend Assets page) ──
+class Asset(Base):
+    __tablename__ = "assets"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    ip_address = Column(String, index=True)
+    asset_type = Column(String)          # server, workstation, network-device, etc.
+    owner = Column(String)
+    criticality = Column(String, default="medium")  # low, medium, high, critical
+    status = Column(String, default="active")        # active, decommissioned
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Organizations / tenants (for the frontend Organizations page) ──
+class Organization(Base):
+    __tablename__ = "organizations"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Suricata alerts (model moved here so create_all() below actually creates this table) ──
+class SuricataAlert(Base):
+    __tablename__ = "suricata_alerts"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    src_ip = Column(String)
+    dest_ip = Column(String)
+    signature = Column(String)
+    severity = Column(Integer)
+    raw_event = Column(JSON)
+
+
+# ── Zeek notices (model here so create_all() below creates this table) ──
+class ZeekNotice(Base):
+    __tablename__ = "zeek_notices"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    note_type = Column(String)
+    message = Column(String)
+    src_ip = Column(String, nullable=True)
+    dest_ip = Column(String, nullable=True)
+    raw_event = Column(JSON)
+
 
 Base.metadata.create_all(bind=engine)
 
@@ -77,6 +125,12 @@ AI_REQUEST_FAILURES = Counter(
     'soc_ai_request_failures_total',
     'Total failed AI Gateway requests by provider and feature',
     ['provider', 'feature']
+)
+
+# ── Suricata alerts ingested counter (used by parse_suricata_alerts() below) ──
+SURICATA_ALERTS_INGESTED = Counter(
+    'soc_suricata_alerts_ingested_total',
+    'Total Suricata alerts ingested into the platform'
 )
 
 # ── Queue size proxy: active WebSocket alert subscribers (for the "queue sizes" dashboard) ──
@@ -133,7 +187,7 @@ def call_ollama(prompt: str) -> str:
         response = requests.post(
             f"{ollama_url}/api/generate",
             json={"model": "llama3.2", "prompt": prompt, "stream": False},
-            timeout=120
+            timeout=240
         )
         response.raise_for_status()
         data = response.json()
@@ -361,7 +415,14 @@ def check_ip_shodan(ip_address: str, user=Depends(verify_token)):
     except requests.exceptions.RequestException as e:
         return {"error": str(e)}
 
+API_KEYS = set(os.getenv("API_KEYS", "").split(","))
 
+@app.get("/internal/verify-api-key")
+def verify_api_key(request: Request):
+    key = request.headers.get("X-API-Key")
+    if not key or key not in API_KEYS:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return {"status": "ok"}
 # ── Internal function (NOT an endpoint) — reused by AI features, agents, and the protected endpoint below.
 # Kept auth-free here because Depends() only works on HTTP-routed functions, not direct Python calls. ──
 def unified_threat_check(ip_address: str):
@@ -382,7 +443,8 @@ def unified_threat_check(ip_address: str):
         vt_malicious = vt_attr.get("total_votes", {}).get("malicious", 0)
         result["details"]["virustotal"] = {
             "reputation": vt_attr.get("reputation"),
-            "malicious_votes": vt_malicious
+            "malicious_votes": vt_malicious,
+            "country": vt_attr.get("country")
         }
         result["sources_checked"].append("virustotal")
         if vt_malicious and vt_malicious > 0:
@@ -415,7 +477,8 @@ def unified_threat_check(ip_address: str):
         pulse_count = otx_resp.get("pulse_info", {}).get("count", 0)
         result["details"]["otx"] = {
             "reputation": otx_resp.get("reputation"),
-            "pulse_count": pulse_count
+            "pulse_count": pulse_count,
+            "country": otx_resp.get("country_name")
         }
         result["sources_checked"].append("otx")
         if pulse_count and pulse_count > 0:
@@ -449,6 +512,12 @@ def unified_threat_check(ip_address: str):
     # ── Track detection rate by verdict type ──
     THREAT_VERDICTS.labels(verdict=result["overall_verdict"]).inc()
 
+    # ── Pull a best-effort country for the Threat Map dashboard ──
+    country = (
+        result["details"].get("virustotal", {}).get("country")
+        or result["details"].get("otx", {}).get("country")
+    )
+
     # Save to database
     db = SessionLocal()
     new_record = Indicator(
@@ -456,7 +525,8 @@ def unified_threat_check(ip_address: str):
         verdict=result["overall_verdict"],
         malicious_signals=result["malicious_signals"],
         sources_checked=result["sources_checked"],
-        details=result["details"]
+        details=result["details"],
+        country=country
     )
     db.add(new_record)
     db.commit()
@@ -814,3 +884,394 @@ def list_sigma_rules(user=Depends(verify_token)):
 #         }
 #     except Exception as e:
 #         return {"error": str(e)}
+
+
+# ── Suricata alert ingestion — model already defined above (near Base.metadata.create_all()) ──
+SURICATA_LOG_PATH = "/var/log/suricata/eve.json"
+
+def parse_suricata_alerts():
+    """Reads Suricata's eve.json, extracts 'alert' events, saves new ones to DB.
+    Only scans the most recent chunk of the file to avoid re-parsing a multi-MB
+    file (and timing out the request) on every call."""
+    if not os.path.exists(SURICATA_LOG_PATH):
+        return {"error": "Suricata log file not found — is the suricata_logs volume mounted?"}
+
+    db = SessionLocal()
+    existing_count = db.query(SuricataAlert).count()
+    new_alerts = 0
+
+    MAX_LINES_TO_SCAN = 5000  # only look at the most recent chunk of the file
+
+    with open(SURICATA_LOG_PATH, "r") as f:
+        lines = f.readlines()[-MAX_LINES_TO_SCAN:]
+
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("event_type") != "alert":
+            continue
+
+        alert_data = event.get("alert", {})
+
+        already_exists = db.query(SuricataAlert).filter(
+            SuricataAlert.signature == alert_data.get("signature"),
+            SuricataAlert.src_ip == event.get("src_ip"),
+            SuricataAlert.dest_ip == event.get("dest_ip")
+        ).first()
+        if already_exists:
+            continue
+
+        record = SuricataAlert(
+            timestamp=datetime.utcnow(),
+            src_ip=event.get("src_ip"),
+            dest_ip=event.get("dest_ip"),
+            signature=alert_data.get("signature"),
+            severity=alert_data.get("severity"),
+            raw_event=event
+        )
+        db.add(record)
+        new_alerts += 1
+        SURICATA_ALERTS_INGESTED.inc()
+
+    db.commit()
+    db.close()
+    return {"new_alerts_ingested": new_alerts, "total_alerts": existing_count + new_alerts}
+
+
+@app.post("/security-monitoring/suricata/ingest")
+def ingest_suricata_alerts(user=Depends(verify_token)):
+    """Manually trigger ingestion of Suricata alerts from eve.json into the platform DB."""
+    try:
+        return parse_suricata_alerts()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/security-monitoring/suricata/alerts")
+def get_suricata_alerts(user=Depends(verify_token)):
+    """Return the most recent Suricata alerts stored in the platform."""
+    db = SessionLocal()
+    alerts = db.query(SuricataAlert).order_by(SuricataAlert.timestamp.desc()).limit(50).all()
+    db.close()
+    return [
+        {
+            "id": a.id,
+            "timestamp": a.timestamp.isoformat(),
+            "src_ip": a.src_ip,
+            "dest_ip": a.dest_ip,
+            "signature": a.signature,
+            "severity": a.severity
+        } for a in alerts
+    ]
+
+
+# ── Wazuh integration — pulls manager health/status via Wazuh REST API ──
+WAZUH_API_URL = os.getenv("WAZUH_API_URL", "https://wazuh-manager:55000")
+WAZUH_API_USER = os.getenv("WAZUH_API_USER", "wazuh")
+WAZUH_API_PASSWORD = os.getenv("WAZUH_API_PASSWORD", "wazuh")
+
+def get_wazuh_token():
+    """Authenticates against Wazuh's API and returns a JWT token."""
+    resp = requests.post(
+        f"{WAZUH_API_URL}/security/user/authenticate",
+        auth=(WAZUH_API_USER, WAZUH_API_PASSWORD),
+        verify=False,
+        timeout=10
+    )
+    resp.raise_for_status()
+    return resp.json()["data"]["token"]
+
+
+@app.get("/security-monitoring/wazuh/status")
+def wazuh_status(user=Depends(verify_token)):
+    """Returns Wazuh manager health status — confirms the SIEM backend is reachable and running."""
+    try:
+        token = get_wazuh_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = requests.get(f"{WAZUH_API_URL}/manager/status", headers=headers, verify=False, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/security-monitoring/wazuh/agents")
+def wazuh_agents(user=Depends(verify_token)):
+    """Returns list of Wazuh-enrolled agents (empty if none enrolled yet)."""
+    try:
+        token = get_wazuh_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = requests.get(f"{WAZUH_API_URL}/agents", headers=headers, verify=False, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── Zeek notice ingestion — parses Zeek's TSV-format notice.log ──
+ZEEK_NOTICE_LOG_PATH = "/var/log/zeek/notice.log"
+
+def parse_zeek_notices():
+    """Reads Zeek's notice.log (tab-separated with # header lines), extracts
+    notable-traffic events, saves new ones to DB."""
+    if not os.path.exists(ZEEK_NOTICE_LOG_PATH):
+        return {"error": "Zeek notice.log not found — is the zeek_logs volume mounted?"}
+
+    db = SessionLocal()
+    existing_count = db.query(ZeekNotice).count()
+    new_notices = 0
+
+    fields = []
+    with open(ZEEK_NOTICE_LOG_PATH, "r") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("#fields"):
+                fields = line.split("\t")[1:]
+                continue
+            if line.startswith("#"):
+                continue  # skip other header lines (#separator, #types, etc.)
+            if not line.strip():
+                continue
+
+            values = line.split("\t")
+            if len(values) != len(fields):
+                continue  # malformed row, skip
+
+            row = dict(zip(fields, values))
+
+            note_type = row.get("note", "-")
+            message = row.get("msg", "-")
+            src_ip = row.get("id.orig_h", "-")
+            dest_ip = row.get("id.resp_h", "-")
+
+            already_exists = db.query(ZeekNotice).filter(
+                ZeekNotice.note_type == note_type,
+                ZeekNotice.message == message,
+                ZeekNotice.src_ip == src_ip
+            ).first()
+            if already_exists:
+                continue
+
+            record = ZeekNotice(
+                timestamp=datetime.utcnow(),
+                note_type=note_type,
+                message=message,
+                src_ip=None if src_ip == "-" else src_ip,
+                dest_ip=None if dest_ip == "-" else dest_ip,
+                raw_event=row
+            )
+            db.add(record)
+            new_notices += 1
+
+    db.commit()
+    db.close()
+    return {"new_notices_ingested": new_notices, "total_notices": existing_count + new_notices}
+
+
+@app.post("/security-monitoring/zeek/ingest")
+def ingest_zeek_notices(user=Depends(verify_token)):
+    """Manually trigger ingestion of Zeek notices from notice.log into the platform DB."""
+    try:
+        return parse_zeek_notices()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/security-monitoring/zeek/notices")
+def get_zeek_notices(user=Depends(verify_token)):
+    """Return the most recent Zeek notices stored in the platform."""
+    db = SessionLocal()
+    notices = db.query(ZeekNotice).order_by(ZeekNotice.timestamp.desc()).limit(50).all()
+    db.close()
+    return [
+        {
+            "id": n.id,
+            "timestamp": n.timestamp.isoformat(),
+            "note_type": n.note_type,
+            "message": n.message,
+            "src_ip": n.src_ip,
+            "dest_ip": n.dest_ip
+        } for n in notices
+    ]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CASE MANAGEMENT — list/view cases from TheHive (for the frontend Cases page)
+# ══════════════════════════════════════════════════════════════════════════
+
+@app.get("/cases")
+def list_cases(user=Depends(verify_token)):
+    """Returns recent TheHive cases, newest first. Frontend Cases page consumes this."""
+    try:
+        headers = {
+            "Authorization": f"Bearer {THEHIVE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        # TheHive 5's Query API — lists all cases, sorted newest first.
+        query_payload = {
+            "query": [
+                {"_name": "listCase"},
+                {"_name": "sort", "_fields": [{"_createdAt": "desc"}]}
+            ]
+        }
+        resp = requests.post(f"{THEHIVE_URL}/api/v1/query", json=query_payload, headers=headers, timeout=10)
+        resp.raise_for_status()
+        cases = resp.json()
+        return {
+            "count": len(cases),
+            "cases": [
+                {
+                    "id": c.get("_id"),
+                    "title": c.get("title"),
+                    "severity": c.get("severity"),
+                    "status": c.get("status"),
+                    "tlp": c.get("tlp"),
+                    "tags": c.get("tags", []),
+                    "description": c.get("description"),
+                    "created_at": c.get("_createdAt"),
+                    "assignee": c.get("assignee")
+                }
+                for c in cases
+            ]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/cases/{case_id}")
+def get_case_detail(case_id: str, user=Depends(verify_token)):
+    """Returns full detail for a single TheHive case."""
+    try:
+        headers = {
+            "Authorization": f"Bearer {THEHIVE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        resp = requests.get(f"{THEHIVE_URL}/api/v1/case/{case_id}", headers=headers, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# THREAT MAP — country-aggregated verdicts (for the frontend Threat Map page)
+# ══════════════════════════════════════════════════════════════════════════
+
+@app.get("/threat-map")
+def get_threat_map(user=Depends(verify_token)):
+    try:
+        db = SessionLocal()
+        records = db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(200).all()
+        db.close()
+
+        country_summary = {}
+        points = []
+        for r in records:
+            country = r.country or "Unknown"
+            if country not in country_summary:
+                country_summary[country] = {"total": 0, "malicious": 0, "suspicious": 0, "clean": 0}
+            country_summary[country]["total"] += 1
+            if r.verdict in country_summary[country]:
+                country_summary[country][r.verdict] += 1
+            points.append({
+                "ip": r.ip_address,
+                "country": country,
+                "verdict": r.verdict,
+                "malicious_signals": r.malicious_signals,
+                "checked_at": r.checked_at.isoformat()
+            })
+
+        return {"countries": country_summary, "points": points}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ASSETS — simple asset inventory CRUD (for the frontend Assets page)
+# ══════════════════════════════════════════════════════════════════════════
+
+class AssetCreate(BaseModel):
+    name: str
+    ip_address: Optional[str] = None
+    asset_type: Optional[str] = "server"
+    owner: Optional[str] = None
+    criticality: Optional[str] = "medium"
+
+@app.get("/assets")
+def list_assets(user=Depends(verify_token)):
+    db = SessionLocal()
+    assets = db.query(Asset).order_by(Asset.created_at.desc()).all()
+    db.close()
+    return [
+        {
+            "id": a.id, "name": a.name, "ip_address": a.ip_address,
+            "asset_type": a.asset_type, "owner": a.owner,
+            "criticality": a.criticality, "status": a.status,
+            "created_at": a.created_at.isoformat()
+        } for a in assets
+    ]
+
+@app.post("/assets")
+def create_asset(payload: AssetCreate, user=Depends(verify_token)):
+    db = SessionLocal()
+    asset = Asset(**payload.dict())
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+    db.close()
+    return {"id": asset.id, "message": "Asset created"}
+
+@app.delete("/assets/{asset_id}")
+def delete_asset(asset_id: int, user=Depends(verify_token)):
+    db = SessionLocal()
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        db.close()
+        return {"error": "Asset not found"}
+    db.delete(asset)
+    db.commit()
+    db.close()
+    return {"message": "Asset deleted"}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ORGANIZATIONS — simple tenant/org CRUD (for the frontend Organizations page)
+# ══════════════════════════════════════════════════════════════════════════
+
+class OrganizationCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+@app.get("/organizations")
+def list_organizations(user=Depends(verify_token)):
+    db = SessionLocal()
+    orgs = db.query(Organization).order_by(Organization.created_at.desc()).all()
+    db.close()
+    return [
+        {"id": o.id, "name": o.name, "description": o.description, "created_at": o.created_at.isoformat()}
+        for o in orgs
+    ]
+
+@app.post("/organizations")
+def create_organization(payload: OrganizationCreate, user=Depends(verify_token)):
+    db = SessionLocal()
+    org = Organization(**payload.dict())
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    db.close()
+    return {"id": org.id, "message": "Organization created"}
+
+@app.delete("/organizations/{org_id}")
+def delete_organization(org_id: int, user=Depends(verify_token)):
+    db = SessionLocal()
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if not org:
+        db.close()
+        return {"error": "Organization not found"}
+    db.delete(org)
+    db.commit()
+    db.close()
+    return {"message": "Organization deleted"}

@@ -5,9 +5,32 @@ http:
       service: backend
       entryPoints:
         - web
+      middlewares:
+        - rate-limit
+        - api-key-auth
 
   services:
     backend:
       loadBalancer:
         servers:
           - url: "http://host.docker.internal:8000"
+
+  middlewares:
+    # ── Rate Limiting ──
+    # Allows an average of 20 requests/second per client IP, with bursts up to 50.
+    rate-limit:
+      rateLimit:
+        average: 20
+        burst: 50
+        period: "1s"
+
+    # ── API Key enforcement ──
+    # Every request through this router must include a valid X-API-Key header.
+    # Traefik calls the backend's /internal/verify-api-key endpoint before forwarding
+    # the real request; a 401 from that endpoint blocks the request at the gateway.
+    api-key-auth:
+      forwardAuth:
+        address: "http://host.docker.internal:8000/internal/verify-api-key"
+        authRequestHeaders:
+          - "X-API-Key"
+        trustForwardHeader: true
