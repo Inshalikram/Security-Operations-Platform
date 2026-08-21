@@ -144,6 +144,8 @@ services:
       - INDEXER_USERNAME=admin
       - INDEXER_PASSWORD=SecretPassword1
       - FILEBEAT_SSL_VERIFICATION_MODE=none
+      - API_USERNAME=wazuh
+      - API_PASSWORD=WazuhApi123!
     networks:
       - sop-network
 
@@ -158,6 +160,7 @@ services:
     command: ["suricata", "-i", "eth0", "--pcap-file-continuous"]
     volumes:
       - suricata_logs:/var/log/suricata
+      - ./suricata/rules:/var/lib/suricata/rules
     networks:
       - sop-network
 
@@ -165,7 +168,10 @@ services:
     image: zeek/zeek:latest
     container_name: sop-zeek
     restart: unless-stopped
-    entrypoint: ["/bin/sh", "-c", "tail -f /dev/null"]
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    entrypoint: ["/bin/sh", "-c", "cd /zeek-logs && zeek -i eth0 local"]
     volumes:
       - zeek_logs:/zeek-logs
     networks:
@@ -216,13 +222,18 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://sop_admin:changeme@postgres:5432/sop_db
-      # - KEYCLOAK_URL=http://localhost:8080
-      - KEYCLOAK_URL=http://127.0.0.1:8080 
+      - KEYCLOAK_URL=http://127.0.0.1:8080
       - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
       - OLLAMA_URL=http://host.docker.internal:11434
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - WAZUH_API_URL=https://wazuh-manager:55000
+      - WAZUH_API_USER=wazuh
+      - WAZUH_API_PASSWORD=WazuhApi123!
     ports:
       - "8000:8000"
+    volumes:
+      - suricata_logs:/var/log/suricata:ro
+      - zeek_logs:/var/log/zeek:ro
     depends_on:
       - postgres
     restart: unless-stopped
