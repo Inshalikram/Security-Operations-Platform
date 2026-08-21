@@ -9,6 +9,7 @@ async function refreshAccessToken(token: any) {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: process.env.AUTH_KEYCLOAK_ID as string,
+        client_secret: process.env.AUTH_KEYCLOAK_SECRET || "",
         grant_type: "refresh_token",
         refresh_token: token.refreshToken,
       }),
@@ -21,8 +22,10 @@ async function refreshAccessToken(token: any) {
       accessToken: refreshed.access_token,
       accessTokenExpires: Date.now() + refreshed.expires_in * 1000,
       refreshToken: refreshed.refresh_token ?? token.refreshToken,
+      error: undefined,
     }
   } catch (error) {
+    console.error("Error refreshing access token", error)
     return { ...token, error: "RefreshAccessTokenError" }
   }
 }
@@ -37,24 +40,54 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, account }) {
+      // Initial sign-in — save the tokens Keycloak gave us
       if (account) {
         return {
           ...token,
           accessToken: account.access_token,
           refreshToken: account.refresh_token,
+          idToken: account.id_token,
           accessTokenExpires: Date.now() + (account.expires_in as number) * 1000,
         }
       }
 
+      // Access token still valid — reuse it
       if (Date.now() < (token.accessTokenExpires as number)) {
         return token
       }
 
+      // Access token expired — refresh it
       return refreshAccessToken(token)
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken as string
+      // Surface refresh failures to the client so the UI can force a re-login
+      // instead of silently sending requests with a dead token.
+      session.error = token.error as string | undefined
       return session
+    },
+  },
+  events: {
+    // NextAuth's own signOut only clears its local session — without this,
+    // the user stays logged into Keycloak's SSO session and a fresh login
+    // silently re-authenticates them with no login prompt.
+    async signOut(message) {
+      const token = "token" in message ? message.token : undefined
+      if (!token?.idToken) return
+      try {
+        const logOutUrl = `${process.env.AUTH_KEYCLOAK_ISSUER}/protocol/openid-connect/logout`
+        await fetch(logOutUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: process.env.AUTH_KEYCLOAK_ID as string,
+            client_secret: process.env.AUTH_KEYCLOAK_SECRET || "",
+            refresh_token: (token.refreshToken as string) || "",
+          }),
+        })
+      } catch (error) {
+        console.error("Error logging out from Keycloak", error)
+      }
     },
   },
 })
