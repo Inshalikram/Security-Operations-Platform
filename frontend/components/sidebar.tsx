@@ -28,14 +28,14 @@ export default function Sidebar() {
         aria-label="Open menu"
         style={{
           position: "fixed",
-          top: 24,
-          left: 24,
+          top: 21,
+          left: 14,
           zIndex: 50,
           background: "linear-gradient(135deg, #ec4899, #a855f7)",
           border: "none",
           borderRadius: 12,
-          width: 44,
-          height: 44,
+          width: 38,
+          height: 40,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
