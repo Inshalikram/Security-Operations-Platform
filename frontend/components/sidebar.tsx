@@ -23,26 +23,25 @@ export default function Sidebar() {
   return (
     <>
       {/* Hamburger button — aligned inline with header row, matches app's pink/purple accent */}
-      <button
+        <button
         onClick={() => setOpen(true)}
         aria-label="Open menu"
         style={{
           position: "fixed",
-          top: 28,
+          top: 24,
           left: 24,
           zIndex: 50,
           background: "linear-gradient(135deg, #ec4899, #a855f7)",
           border: "none",
-          borderRadius: 10,
-          width: 40,
-          height: 40,
+          borderRadius: 12,
+          width: 44,
+          height: 44,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           color: "white",
-          fontSize: 18,
+          fontSize: 20,
           cursor: "pointer",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
         }}
       >
         ☰
