@@ -449,7 +449,7 @@ def unified_threat_check(ip_address: str):
             "country": vt_attr.get("country")
         }
         result["sources_checked"].append("virustotal")
-        if vt_malicious and vt_malicious > 0:
+        if vt_malicious and vt_malicious > 5:
             result["malicious_signals"] += 1
     except Exception as e:
         result["details"]["virustotal"] = {"error": str(e)}
@@ -483,7 +483,7 @@ def unified_threat_check(ip_address: str):
             "country": otx_resp.get("country_name")
         }
         result["sources_checked"].append("otx")
-        if pulse_count and pulse_count > 0:
+        if pulse_count and pulse_count > 3:
             result["malicious_signals"] += 1
     except Exception as e:
         result["details"]["otx"] = {"error": str(e)}
