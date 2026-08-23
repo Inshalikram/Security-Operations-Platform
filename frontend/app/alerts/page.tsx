@@ -58,7 +58,7 @@ export default function AlertsPage() {
         <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-rose-600/10 blur-3xl" />
       </div>
 
-      <header className="relative border-b border-white/5 bg-white/[0.02] px-8 py-5 backdrop-blur-xl">
+      <header className="relative border-b border-white/5 bg-white/[0.02] pl-17 pr-8 py-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-rose-500 shadow-lg shadow-violet-500/20">
