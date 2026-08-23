@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Shield, Loader2, Sparkles } from "lucide-react"
 
-const BASE_URL = "http://127.0.0.1:8000"
+const BASE_URL = "http://169.58.221.49:8000"
 
 const ACTIONS = [
   { key: "explain", label: "Explain IOC", endpoint: (ip: string) => `/ai/explain/${ip}` },

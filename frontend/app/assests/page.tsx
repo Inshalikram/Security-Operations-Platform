@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Server, Loader2, Plus, Trash2 } from "lucide-react"
 
-const BASE_URL = "http://127.0.0.1:8000"
+const BASE_URL = "http://169.58.221.49:8000"
 
 const CRITICALITY_COLORS: Record<string, string> = {
   low: "bg-slate-500/20 text-slate-300",

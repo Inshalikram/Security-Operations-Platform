@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FolderOpen, Loader2, AlertTriangle } from "lucide-react"
 
-const BASE_URL = "http://127.0.0.1:8000"
+const BASE_URL = "http://169.58.221.49:8000"
 
 const SEVERITY_COLORS: Record<number, string> = {
   1: "bg-slate-500/20 text-slate-300",

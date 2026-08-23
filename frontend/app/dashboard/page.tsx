@@ -23,7 +23,7 @@ type ThreatRecord = {
 }
 
 async function getHistory(token: string): Promise<ThreatRecord[]> {
-  const res = await fetch("http://127.0.0.1:8000/threat-intel/history", {
+  const res = await fetch("http://169.58.221.49:8000/threat-intel/history", {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   })

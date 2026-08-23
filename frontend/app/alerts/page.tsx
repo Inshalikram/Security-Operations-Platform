@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Bell, Loader2, Radio } from "lucide-react"
 
-const BASE_URL = "http://127.0.0.1:8000"
+const BASE_URL = "http://169.58.221.49:8000"
 const WS_URL = "ws://127.0.0.1:8000/ws/alerts"
 
 const VERDICT_STYLES: Record<string, string> = {

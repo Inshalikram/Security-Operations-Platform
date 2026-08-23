@@ -51,6 +51,7 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: admin123
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/sop_db
+      KC_HOSTNAME_STRICT_HTTPS: "false"
       KC_DB_USERNAME: sop_admin
       KC_DB_PASSWORD: changeme
     ports:
@@ -239,7 +240,20 @@ services:
     restart: unless-stopped
     networks:
       - sop-network
-
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sop-frontend
+    env_file:
+      - ./frontend/.env.local
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - sop-network
   prometheus:
     image: prom/prometheus:latest
     container_name: sop-prometheus
