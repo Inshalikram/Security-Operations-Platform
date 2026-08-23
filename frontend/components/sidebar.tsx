@@ -22,21 +22,27 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Hamburger button — always visible, top-left */}
+      {/* Hamburger button — aligned inline with header row, matches app's pink/purple accent */}
       <button
         onClick={() => setOpen(true)}
         aria-label="Open menu"
         style={{
           position: "fixed",
-          top: 16,
-          left: 16,
+          top: 28,
+          left: 24,
           zIndex: 50,
-          background: "rgba(20,20,30,0.9)",
-          border: "1px solid rgba(255,255,255,0.15)",
-          borderRadius: 8,
-          padding: "8px 10px",
+          background: "linear-gradient(135deg, #ec4899, #a855f7)",
+          border: "none",
+          borderRadius: 10,
+          width: 40,
+          height: 40,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
           color: "white",
+          fontSize: 18,
           cursor: "pointer",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
         }}
       >
         ☰
@@ -49,7 +55,7 @@ export default function Sidebar() {
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.5)",
+            background: "rgba(0,0,0,0.6)",
             zIndex: 40,
           }}
         />
@@ -63,11 +69,11 @@ export default function Sidebar() {
           left: open ? 0 : -260,
           width: 240,
           height: "100%",
-          background: "#111117",
-          borderRight: "1px solid rgba(255,255,255,0.1)",
+          background: "#0d0d14",
+          borderRight: "1px solid rgba(255,255,255,0.08)",
           zIndex: 45,
           transition: "left 0.2s ease",
-          padding: "70px 16px 16px",
+          padding: "80px 16px 16px",
         }}
       >
         {NAV_ITEMS.map((item) => {
@@ -79,13 +85,16 @@ export default function Sidebar() {
               onClick={() => setOpen(false)}
               style={{
                 display: "block",
-                padding: "10px 12px",
+                padding: "10px 14px",
                 marginBottom: 4,
-                borderRadius: 6,
-                color: active ? "white" : "rgba(255,255,255,0.7)",
-                background: active ? "rgba(236,72,153,0.2)" : "transparent",
+                borderRadius: 8,
+                color: active ? "white" : "rgba(255,255,255,0.65)",
+                background: active
+                  ? "linear-gradient(135deg, rgba(236,72,153,0.25), rgba(168,85,247,0.25))"
+                  : "transparent",
                 textDecoration: "none",
                 fontSize: 14,
+                fontWeight: active ? 600 : 400,
               }}
             >
               {item.label}
