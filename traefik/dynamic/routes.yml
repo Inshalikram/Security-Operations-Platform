@@ -1,0 +1,43 @@
+http:
+  routers:
+    backend:
+      rule: "Host(`api.169-58-221-49.nip.io`)"
+      entrypoints:
+        - websecure
+      tls:
+        certResolver: le
+      service: backend
+      middlewares:
+        - rate-limit
+
+    frontend:
+      rule: "Host(`app.169-58-221-49.nip.io`)"
+      entrypoints:
+        - websecure
+      tls:
+        certResolver: le
+      service: frontend
+
+    n8n:
+      rule: "Host(`n8n.169-58-221-49.nip.io`)"
+      entrypoints:
+        - websecure
+      tls:
+        certResolver: le
+      service: n8n
+
+  services:
+    backend:
+      loadBalancer:
+        servers:
+          - url: "http://sop-backend:8000"
+
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://sop-frontend:3000"
+
+    n8n:
+      loadBalancer:
+        servers:
+          - url: "http://sop-n8n:5678"
