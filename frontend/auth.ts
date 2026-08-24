@@ -40,7 +40,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       clientId: process.env.AUTH_KEYCLOAK_ID,
       clientSecret: process.env.AUTH_KEYCLOAK_SECRET || "",
       issuer: process.env.AUTH_KEYCLOAK_ISSUER,
-      authorization: `${process.env.AUTH_KEYCLOAK_ISSUER}/protocol/openid-connect/auth`,
+      authorization: {
+       url: `${process.env.AUTH_KEYCLOAK_ISSUER}/protocol/openid-connect/auth`,
+       params: { scope: "openid email profile offline_access" },
+      },
       token: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER}/protocol/openid-connect/token`,
       userinfo: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER}/protocol/openid-connect/userinfo`,
       jwks_endpoint: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER}/protocol/openid-connect/certs`,
