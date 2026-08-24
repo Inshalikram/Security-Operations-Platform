@@ -169,6 +169,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://169.58.221.49:3000",
+        "https://app.169-58-221-49.nip.io",
     ],
     allow_credentials=True,
     allow_methods=["*"],
