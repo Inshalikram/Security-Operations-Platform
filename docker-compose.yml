@@ -52,6 +52,9 @@ services:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/sop_db
       KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HOSTNAME: 169.58.221.49
+      KC_HOSTNAME_PORT: 8080
+      KC_HTTP_ENABLED: "true"
       KC_DB_USERNAME: sop_admin
       KC_DB_PASSWORD: changeme
     ports:
@@ -230,7 +233,7 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://sop_admin:changeme@postgres:5432/sop_db
-      - KEYCLOAK_URL=http://127.0.0.1:8080
+      - KEYCLOAK_URL=http://169.58.221.49:8080
       - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
       - OLLAMA_URL=http://host.docker.internal:11434
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
@@ -314,6 +317,7 @@ services:
     environment:
       - N8N_HOST=localhost
       - N8N_PORT=5678
+      - N8N_SECURE_COOKIE=false
       - N8N_PROTOCOL=http
       - GENERIC_TIMEZONE=Asia/Karachi
       - N8N_BASIC_AUTH_ACTIVE=true
