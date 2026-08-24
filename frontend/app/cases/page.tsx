@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSession } from "next-auth/react"
 import { signOut } from "next-auth/react"
+import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FolderOpen, Loader2, AlertTriangle } from "lucide-react"
@@ -16,7 +16,7 @@ const SEVERITY_COLORS: Record<number, string> = {
 }
 
 export default function CasesPage() {
-  const { data: session } = useSession()
+  const session= useSessionGuard()
   const [cases, setCases] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

@@ -20,7 +20,11 @@ async function refreshAccessToken(token: any) {
     return {
       ...token,
       accessToken: refreshed.access_token,
-      accessTokenExpires: Date.now() + refreshed.expires_in * 1000,
+      // same fallback here — refresh response can also come back with expires_at
+      // instead of expires_in depending on the Keycloak version
+      accessTokenExpires: refreshed.expires_at
+        ? refreshed.expires_at * 1000
+        : Date.now() + (refreshed.expires_in ?? 300) * 1000,
       refreshToken: refreshed.refresh_token ?? token.refreshToken,
       error: undefined,
     }
@@ -46,21 +50,29 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, account }) {
       // Initial sign-in — save the tokens Keycloak gave us
       if (account) {
+        // Auth.js providers sometimes return expires_at (absolute, seconds)
+        // instead of expires_in (relative, seconds) — handle both so this
+        // never silently becomes NaN and breaks the expiry check below.
+        const accessTokenExpires = account.expires_at
+          ? (account.expires_at as number) * 1000
+          : Date.now() + ((account.expires_in as number) ?? 300) * 1000
+
         return {
           ...token,
           accessToken: account.access_token,
           refreshToken: account.refresh_token,
           idToken: account.id_token,
-          accessTokenExpires: Date.now() + (account.expires_in as number) * 1000,
+          accessTokenExpires,
         }
       }
 
-      // Access token still valid — reuse it
-      if (Date.now() < (token.accessTokenExpires as number)) {
+      // Access token still valid (30s buffer so a request in-flight right at
+      // expiry doesn't get sent with a token that dies before it lands)
+      if (Date.now() < (token.accessTokenExpires as number) - 30_000) {
         return token
       }
 
-      // Access token expired — refresh it
+      // Access token expired (or about to) — refresh it
       return refreshAccessToken(token)
     },
     async session({ session, token }) {

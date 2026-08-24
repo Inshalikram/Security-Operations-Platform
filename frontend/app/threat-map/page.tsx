@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSession } from "next-auth/react"
 import { signOut } from "next-auth/react"
+import { useSessionGuard } from "@/lib/use-session-guard"
 import { ComposableMap, Geographies, Geography } from "react-simple-maps"
 import countries from "i18n-iso-countries"
 import enLocale from "i18n-iso-countries/langs/en.json"
@@ -26,7 +26,7 @@ function normalizeCountryName(raw: string): string {
 }
 
 export default function ThreatMapPage() {
-  const { data: session } = useSession()
+  const session = useSessionGuard()
   const [countryData, setCountryData] = useState<Record<string, any>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
