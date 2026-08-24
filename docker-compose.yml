@@ -199,7 +199,7 @@ services:
       - sop-network
 
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.3
     container_name: sop-traefik
     command:
       - "--api.insecure=true"
@@ -214,6 +214,8 @@ services:
       - "--certificatesresolvers.le.acme.email=inshalikram06@gmail.com"
       - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
       - "--accesslog=true"
+    environment:
+      - DOCKER_API_VERSION=1.44
     ports:
       - "80:80"
       - "443:443"
