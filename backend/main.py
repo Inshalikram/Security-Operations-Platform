@@ -28,6 +28,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from cache import get_cached, set_cached
 from storage import upload_bytes, get_presigned_url
 from rag import retrieve_relevant_chunks
+from search import index_document, search_all
 
 load_dotenv()
 
@@ -550,6 +551,14 @@ def unified_threat_check(ip_address: str):
     )
     db.add(new_record)
     db.commit()
+    # ── Index into Elasticsearch for /search — best-effort, never breaks this endpoint ──
+    index_document("threat_indicators", new_record.id, {
+        "ip": new_record.ip_address,
+        "verdict": new_record.verdict,
+        "malicious_signals": new_record.malicious_signals,
+        "country": new_record.country,
+        "checked_at": new_record.checked_at.isoformat()
+    })
     db.close()
     # Broadcast to WebSocket clients (fire-and-forget, safe even if no clients connected)
     try:
@@ -989,6 +998,14 @@ def parse_suricata_alerts():
         db.add(record)
         new_alerts += 1
         SURICATA_ALERTS_INGESTED.inc()
+        # ── Index into Elasticsearch for /search — best-effort, never breaks ingestion ──
+        index_document("suricata_alerts", f"{record.src_ip}-{record.signature}-{new_alerts}", {
+            "src_ip": record.src_ip,
+            "dest_ip": record.dest_ip,
+            "signature": record.signature,
+            "severity": record.severity,
+            "timestamp": record.timestamp.isoformat()
+        })
 
     db.commit()
     db.close()
@@ -1119,6 +1136,14 @@ def parse_zeek_notices():
             )
             db.add(record)
             new_notices += 1
+            # ── Index into Elasticsearch for /search — best-effort, never breaks ingestion ──
+            index_document("zeek_notices", f"{record.note_type}-{record.src_ip}-{new_notices}", {
+                "note_type": record.note_type,
+                "message": record.message,
+                "src_ip": record.src_ip,
+                "dest_ip": record.dest_ip,
+                "timestamp": record.timestamp.isoformat()
+            })
 
     db.commit()
     db.close()
@@ -1241,6 +1266,17 @@ def get_threat_map(user=Depends(verify_token)):
         return {"countries": country_summary, "points": points}
     except Exception as e:
         return {"error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SEARCH — unified search across alerts/notices/indicators via Elasticsearch
+# ══════════════════════════════════════════════════════════════════════════
+
+@app.get("/search")
+def unified_search(q: str, user=Depends(verify_token)):
+    if not q or not q.strip():
+        return {"error": "query parameter 'q' is required"}
+    return {"query": q, "results": search_all(q)}
 
 
 # ══════════════════════════════════════════════════════════════════════════
