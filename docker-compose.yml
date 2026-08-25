@@ -74,21 +74,6 @@ services:
     networks:
       - sop-network
 
-  cortex:
-    image: thehiveproject/cortex:3.1.7-1
-    container_name: sop-cortex
-    restart: unless-stopped
-    environment:
-      - job_directory=/tmp/cortex-jobs
-    volumes:
-      - ./cortex/application.conf:/etc/cortex/application.conf
-    ports:
-      - "9002:9001"
-    depends_on:
-      - elasticsearch
-    networks:
-      - sop-network
-
   thehive:
     image: strangebee/thehive:5.4
     container_name: sop-thehive
