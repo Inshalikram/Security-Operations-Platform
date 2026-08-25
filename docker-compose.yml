@@ -220,6 +220,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/dynamic:/etc/traefik/dynamic
       - traefik_letsencrypt:/letsencrypt
+    networks:
+      - sop-network
     restart: unless-stopped
 
   backend:
