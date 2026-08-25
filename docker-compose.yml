@@ -101,40 +101,6 @@ services:
     networks:
       - sop-network
 
-  misp:
-    image: coolacid/misp-docker:core-latest
-    container_name: sop-misp
-    restart: unless-stopped
-    environment:
-      MYSQL_HOST: misp-db
-      MYSQL_DATABASE: misp
-      MYSQL_USER: misp
-      MYSQL_PASSWORD: misp123
-      MISP_ADMIN_EMAIL: admin@sop.local
-      MISP_ADMIN_PASSPHRASE: admin123
-      MISP_BASEURL: https://localhost:9004
-      CRON_USER_ID: "1"
-    ports:
-      - "9004:443"
-    depends_on:
-      - misp-db
-    networks:
-      - sop-network
-
-  misp-db:
-    image: mysql:8.0
-    container_name: sop-misp-db
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: misp
-      MYSQL_USER: misp
-      MYSQL_PASSWORD: misp123
-    volumes:
-      - misp_db_data:/var/lib/mysql
-    networks:
-      - sop-network
-
   wazuh-manager:
     image: wazuh/wazuh-manager:4.9.0
     container_name: sop-wazuh-manager
@@ -392,7 +358,6 @@ services:
 volumes:
   postgres_data:
   minio_data:
-  misp_db_data:
   suricata_logs:
   zeek_logs:
   n8n_data:
