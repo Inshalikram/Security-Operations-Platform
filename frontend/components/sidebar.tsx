@@ -22,12 +22,12 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Hamburger button — aligned inline with header row, matches app's pink/purple accent */}
-        <button
+      {/* Hamburger button — now scrolls away with the page instead of staying pinned */}
+      <button
         onClick={() => setOpen(true)}
         aria-label="Open menu"
         style={{
-          position: "fixed",
+          position: "absolute",
           top: 21,
           left: 14,
           zIndex: 50,
@@ -47,7 +47,7 @@ export default function Sidebar() {
         ☰
       </button>
 
-      {/* Dark overlay when sidebar is open */}
+      {/* Dark overlay when sidebar is open — stays fixed so it covers the full viewport while open */}
       {open && (
         <div
           onClick={() => setOpen(false)}
@@ -60,7 +60,7 @@ export default function Sidebar() {
         />
       )}
 
-      {/* Sliding sidebar panel */}
+      {/* Sliding sidebar panel — stays fixed so it doesn't get cut off mid-scroll while open */}
       <nav
         style={{
           position: "fixed",
