@@ -1,8 +1,12 @@
-ovh_auth_url         = "https://auth.cloud.ovh.net/v3"
-ovh_project_id       = "your-project-id-here"
-ovh_username         = "your-ovh-openstack-user"
-ovh_password         = "your-ovh-openstack-password"
-ovh_region           = "GRA7"
-instance_flavor      = "b2-15"
-ssh_keypair_name     = "your-ssh-key-name"
-external_network_name = "Ext-Net"
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars is gitignored — never commit real credentials.
+
+contabo_client_id     = "your-contabo-oauth2-client-id"
+contabo_client_secret = "your-contabo-oauth2-client-secret"
+contabo_user           = "your-contabo-account-email"
+contabo_password        = "your-contabo-account-password"
+
+contabo_region        = "EU"
+instance_display_name = "soc-platform-vps"
+instance_product_id   = "V45"
+ssh_key_ids            = []

@@ -1,11 +1,19 @@
 output "vps_public_ip" {
-  value = openstack_networking_floatingip_v2.sop_fip.address
+  description = "Public IPv4 address of the provisioned SOC platform VPS"
+  value       = try(contabo_instance.soc_platform.ip_config[0].v4[0].ip, null)
 }
 
 output "backend_url" {
-  value = "http://${openstack_networking_floatingip_v2.sop_fip.address}:8000"
+  description = "Backend API base URL"
+  value       = try("http://${contabo_instance.soc_platform.ip_config[0].v4[0].ip}:8000", null)
+}
+
+output "frontend_url" {
+  description = "Frontend base URL"
+  value       = try("http://${contabo_instance.soc_platform.ip_config[0].v4[0].ip}:3000", null)
 }
 
 output "n8n_url" {
-  value = "http://${openstack_networking_floatingip_v2.sop_fip.address}:5678"
+  description = "n8n automation UI base URL"
+  value       = try("http://${contabo_instance.soc_platform.ip_config[0].v4[0].ip}:5678", null)
 }
