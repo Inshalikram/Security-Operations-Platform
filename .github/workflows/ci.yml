@@ -24,12 +24,17 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt || echo "No requirements.txt found, skipping"
-          pip install flake8
+          pip install flake8 pytest
 
       - name: Lint with flake8
         run: |
           cd backend
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Run tests with pytest
+        run: |
+          cd backend
+          pytest --tb=short
 
   gitleaks:
     runs-on: ubuntu-latest
