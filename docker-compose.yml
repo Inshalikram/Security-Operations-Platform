@@ -207,6 +207,7 @@ services:
       - "--certificatesresolvers.le.acme.email=inshalikram06@gmail.com"
       - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
       - "--accesslog=true"
+      - "--log.level=DEBUG"
     ports:
       - "80:80"
       - "443:443"
