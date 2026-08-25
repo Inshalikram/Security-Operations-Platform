@@ -27,6 +27,7 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from cache import get_cached, set_cached
 from storage import upload_bytes, get_presigned_url
+from rag import retrieve_relevant_chunks
 
 load_dotenv()
 
@@ -92,6 +93,17 @@ class ZeekNotice(Base):
     src_ip = Column(String, nullable=True)
     dest_ip = Column(String, nullable=True)
     raw_event = Column(JSON)
+
+
+# ── Knowledge base chunks for RAG — Sigma rules, MITRE ATT&CK, CVEs, playbooks, docs ──
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+    id = Column(Integer, primary_key=True, index=True)
+    source_type = Column(String)   # sigma_rule, mitre, cve, playbook, doc
+    title = Column(String)
+    content = Column(String)
+    embedding = Column(JSON)       # stored as list of floats
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 Base.metadata.create_all(bind=engine)
@@ -269,7 +281,7 @@ def call_openai(prompt: str) -> str:
 
 def call_gemini(prompt: str) -> str:
     key = os.getenv("GEMINI_API_KEY")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     r = requests.post(url, json=payload, timeout=60)
     r.raise_for_status()
@@ -742,7 +754,8 @@ Details: {threat_data['details']}"""
         return {"error": str(e)}
 
 
-# ── RAG endpoint — combines current finding + this IP's own history from Postgres ──
+# ── RAG endpoint — combines current finding + this IP's own history from Postgres
+# + relevant knowledge base chunks (Sigma rules, MITRE ATT&CK, CVEs, playbooks) ──
 @app.get("/ai/rag-explain/{ip_address}")
 def ai_rag_explain(ip_address: str, provider: str = None, user=Depends(verify_token)):
     try:
@@ -753,7 +766,17 @@ def ai_rag_explain(ip_address: str, provider: str = None, user=Depends(verify_to
             [f"- {p['checked_at']}: verdict={p['verdict']}, signals={p['malicious_signals']}" for p in past_incidents]
         )
 
-        prompt = f"""You are a SOC analyst assistant with access to historical data.
+        # ── Retrieve relevant knowledge chunks (Sigma rules, MITRE, CVEs, playbooks) ──
+        query_text = f"IP {ip_address} verdict {threat_data['overall_verdict']} signals {threat_data['malicious_signals']}"
+        db = SessionLocal()
+        relevant_chunks = retrieve_relevant_chunks(db, KnowledgeChunk, query_text, top_k=5)
+        db.close()
+
+        knowledge_text = "No relevant knowledge base entries found." if not relevant_chunks else "\n".join(
+            [f"- [{c.source_type}] {c.title}: {c.content[:200]}" for c in relevant_chunks]
+        )
+
+        prompt = f"""You are a SOC analyst assistant with access to historical data and an internal knowledge base.
 
 Current finding:
 IP: {threat_data['ip']}
@@ -763,8 +786,17 @@ Malicious Signals: {threat_data['malicious_signals']}
 Past history for this IP:
 {history_text}
 
-Using both the current finding AND the past history, explain whether this is a recurring threat pattern and what that means for prioritization."""
-        return {"ip": ip_address, "past_incidents_count": len(past_incidents), "ai_explanation": call_ai(prompt, provider, feature="rag_explain")}
+Relevant knowledge base entries (Sigma rules, MITRE ATT&CK, CVEs, playbooks):
+{knowledge_text}
+
+Using the current finding, past history, AND the knowledge base entries above, explain whether this is a recurring threat pattern, which MITRE techniques or playbooks are relevant, and what that means for prioritization."""
+
+        return {
+            "ip": ip_address,
+            "past_incidents_count": len(past_incidents),
+            "knowledge_sources_used": [{"type": c.source_type, "title": c.title} for c in relevant_chunks],
+            "ai_explanation": call_ai(prompt, provider, feature="rag_explain")
+        }
     except Exception as e:
         return {"error": str(e)}
 
@@ -836,7 +868,7 @@ def exec_report_agent_endpoint(period: str, user=Depends(verify_token)):
     except Exception as e:
         return {"error": str(e)}
 
-    
+
 @app.get("/reports/{filename}/download-url")
 def get_report_download_url(filename: str, user=Depends(verify_token)):
     url = get_presigned_url("reports", filename)
