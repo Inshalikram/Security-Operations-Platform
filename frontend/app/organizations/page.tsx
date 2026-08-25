@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSession } from "next-auth/react"
 import { signOut } from "next-auth/react"
+import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -11,7 +11,7 @@ import { Building2, Loader2, Plus, Trash2 } from "lucide-react"
 const BASE_URL = "http://169.58.221.49:8000"
 
 export default function OrganizationsPage() {
-  const { data: session } = useSession()
+  const session= useSessionGuard()
   const [orgs, setOrgs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)

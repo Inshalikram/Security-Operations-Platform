@@ -40,6 +40,7 @@ function verdictBadgeClass(verdict: string) {
 export default async function Dashboard() {
   const session = await auth()
   if (!session) redirect("/")
+  if (session.error === "RefreshAccessTokenError") redirect("/api/auth/signin")
 
   const history = await getHistory(session.accessToken as string)
   const malicious = history.filter((h) => h.verdict === "malicious").length

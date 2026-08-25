@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSession } from "next-auth/react"
 import { signOut } from "next-auth/react"
+import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,7 +18,7 @@ const CRITICALITY_COLORS: Record<string, string> = {
 }
 
 export default function AssetsPage() {
-  const { data: session } = useSession()
+  const session = useSessionGuard()
   const [assets, setAssets] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)

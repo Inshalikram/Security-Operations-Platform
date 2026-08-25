@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useSession, signOut } from "next-auth/react"
+import { signOut } from "next-auth/react"
+import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -10,7 +11,7 @@ import { Search as SearchIcon, Loader2 } from "lucide-react"
 const BASE_URL = "http://169.58.221.49:8000"
 
 export default function SearchPage() {
-  const { data: session } = useSession()
+  const session= useSessionGuard()
   const [query, setQuery] = useState("")
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
