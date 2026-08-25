@@ -164,7 +164,7 @@ services:
       - /usr:/host/usr:ro
       - /etc:/host/etc:ro
     networks:
-      - sop-networkmisp
+      - sop-network
 
   traefik:
     image: traefik:v3.3
