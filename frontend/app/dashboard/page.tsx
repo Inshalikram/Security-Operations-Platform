@@ -23,7 +23,7 @@ type ThreatRecord = {
 }
 
 async function getHistory(token: string): Promise<ThreatRecord[]> {
-  const res = await fetch("http://169.58.221.49:8000/threat-intel/history", {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/threat-intel/history`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   })

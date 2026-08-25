@@ -12,7 +12,7 @@ import { Globe, Loader2, AlertTriangle } from "lucide-react"
 
 countries.registerLocale(enLocale)
 
-const BASE_URL = "http://169.58.221.49:8000"
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
 
 // Normalizes whatever the backend gives us (2-letter code OR full name) into a full country name.

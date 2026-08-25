@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Bell, Loader2, Radio } from "lucide-react"
 
-const BASE_URL = "http://169.58.221.49:8000"
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 const WS_URL = "ws://169.58.221.49:8000/ws/alerts"
 
 const VERDICT_STYLES: Record<string, string> = {

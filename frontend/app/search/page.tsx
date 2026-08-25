@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Search as SearchIcon, Loader2 } from "lucide-react"
 
-const BASE_URL = "http://169.58.221.49:8000"
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 
 export default function SearchPage() {
   const session= useSessionGuard()
