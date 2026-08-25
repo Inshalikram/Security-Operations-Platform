@@ -69,4 +69,4 @@ opentelemetry-instrumentation-fastapi
 opentelemetry-exporter-otlp
 redis
 minio
-elasticsearch==7.17.9
+elasticsearch==8.15.1
