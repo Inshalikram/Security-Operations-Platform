@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
-import { useSession } from "next-auth/react"
 import { signOut } from "next-auth/react"
+import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Bell, Loader2, Radio } from "lucide-react"
@@ -17,7 +17,7 @@ const VERDICT_STYLES: Record<string, string> = {
 }
 
 export default function AlertsPage() {
-  const { data: session } = useSession()
+  const session = useSessionGuard()
   const [alerts, setAlerts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [connected, setConnected] = useState(false)

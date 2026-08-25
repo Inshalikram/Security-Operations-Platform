@@ -25,6 +25,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from cache import get_cached, set_cached
+from storage import upload_bytes, get_presigned_url
 
 load_dotenv()
 
@@ -429,6 +431,9 @@ def verify_api_key(request: Request):
 # ── Internal function (NOT an endpoint) — reused by AI features, agents, and the protected endpoint below.
 # Kept auth-free here because Depends() only works on HTTP-routed functions, not direct Python calls. ──
 def unified_threat_check(ip_address: str):
+    cached = get_cached(f"threat:{ip_address}")
+    if cached:
+        return cached
     result = {
         "ip": ip_address,
         "sources_checked": [],
@@ -572,6 +577,7 @@ def unified_threat_check(ip_address: str):
                 INCIDENTS_CREATED.inc()
         except Exception as e:
             result["thehive_case"] = {"error": str(e)}
+    set_cached(f"threat:{ip_address}", result)
     return result
 
 
@@ -815,14 +821,28 @@ def exec_report_agent_endpoint(period: str, user=Depends(verify_token)):
         return {"error": "period must be one of: weekly, monthly, quarterly"}
     try:
         result = run_exec_report(period)
+
+        # Store the report text in MinIO so it's retrievable later
+        report_bytes = result["report"].encode("utf-8")
+        filename = f"{period}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.txt"
+        object_path = upload_bytes("reports", filename, report_bytes, content_type="text/plain")
+
         return {
             "period": period,
             "stats": result["stats"],
-            "report": result["report"]
+            "report": result["report"],
+            "stored_at": object_path,
         }
     except Exception as e:
         return {"error": str(e)}
 
+    
+@app.get("/reports/{filename}/download-url")
+def get_report_download_url(filename: str, user=Depends(verify_token)):
+    url = get_presigned_url("reports", filename)
+    if not url:
+        return {"error": "Report not found or MinIO unavailable"}
+    return {"download_url": url}
 
 @app.websocket("/ws/alerts")
 async def websocket_alerts(websocket: WebSocket, token: str = None):

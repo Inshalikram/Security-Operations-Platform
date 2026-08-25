@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useSession, signOut } from "next-auth/react"
+import { signOut } from "next-auth/react"
+import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Settings as SettingsIcon, User, Cpu } from "lucide-react"
@@ -9,7 +10,7 @@ import { Settings as SettingsIcon, User, Cpu } from "lucide-react"
 const PROVIDERS = ["ollama", "openai", "gemini", "deepseek", "qwen"]
 
 export default function SettingsPage() {
-  const { data: session } = useSession()
+  const session= useSessionGuard()
   const [provider, setProvider] = useState("ollama")
 
   return (
