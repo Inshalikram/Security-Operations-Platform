@@ -83,6 +83,8 @@ services:
     restart: unless-stopped
     environment:
       - job_directory=/tmp/cortex-jobs
+    volumes:
+      - ./cortex/application.conf:/etc/cortex/application.conf
     ports:
       - "9002:9001"
     depends_on:
@@ -162,7 +164,7 @@ services:
       - /usr:/host/usr:ro
       - /etc:/host/etc:ro
     networks:
-      - sop-network
+      - sop-networkmisp
 
   traefik:
     image: traefik:v3.3
