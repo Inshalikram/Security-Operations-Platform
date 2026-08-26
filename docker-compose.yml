@@ -88,6 +88,37 @@ services:
     networks:
       - sop-network
 
+  # ── One-time cert generator for Wazuh Manager <-> Indexer TLS. Runs once, exits — safe to leave in compose. ──
+  wazuh-certs-generator:
+    image: wazuh/wazuh-certs-generator:0.0.2
+    container_name: sop-wazuh-certs
+    volumes:
+      - wazuh_certs:/certificates
+      - ./wazuh/certs.yml:/config/certs.yml
+    networks:
+      - sop-network
+
+  # ── Wazuh Indexer — OpenSearch-based, this is where real Wazuh alerts actually live ──
+  wazuh-indexer:
+    image: wazuh/wazuh-indexer:4.9.0
+    container_name: sop-wazuh-indexer
+    restart: unless-stopped
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - wazuh_indexer_data:/var/lib/wazuh-indexer
+      - wazuh_certs:/usr/share/wazuh-indexer/certs:ro
+    ports:
+      - "9201:9200"
+    networks:
+      - sop-network
+    depends_on:
+      - wazuh-certs-generator
+
   wazuh-manager:
     image: wazuh/wazuh-manager:4.9.0
     container_name: sop-wazuh-manager
@@ -103,6 +134,12 @@ services:
       - FILEBEAT_SSL_VERIFICATION_MODE=none
       - API_USERNAME=wazuh
       - API_PASSWORD=WazuhApi123!
+    volumes:
+      - wazuh_certs:/etc/filebeat/certs:ro
+      - ./wazuh/filebeat.yml:/etc/filebeat/filebeat.yml:ro
+    depends_on:
+      - wazuh-certs-generator
+      - wazuh-indexer
     networks:
       - sop-network
 
@@ -198,6 +235,9 @@ services:
       - WAZUH_API_URL=https://wazuh-manager:55000
       - WAZUH_API_USER=wazuh
       - WAZUH_API_PASSWORD=WazuhApi123!
+      - WAZUH_INDEXER_URL=https://wazuh-indexer:9200
+      - WAZUH_INDEXER_USER=admin
+      - WAZUH_INDEXER_PASSWORD=SecretPassword1
     ports:
       - "8000:8000"
     volumes:
@@ -206,6 +246,7 @@ services:
       - falco_logs:/var/log/falco:ro
     depends_on:
       - postgres
+      - wazuh-indexer
     restart: unless-stopped
     networks:
       - sop-network
@@ -354,6 +395,8 @@ volumes:
   grafana_data:
   traefik_letsencrypt:
   falco_logs:
+  wazuh_certs:
+  wazuh_indexer_data:
 
 networks:
   sop-network:

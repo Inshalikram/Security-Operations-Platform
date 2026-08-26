@@ -1006,18 +1006,27 @@ def get_falco_events(user=Depends(verify_token)):
 
 
 # ── Wazuh alert fetcher — pulls recent alerts (not just health status) from Wazuh's REST API ──
+# ── Wazuh Indexer config — this is where real alerts actually live (not the Manager API) ──
+WAZUH_INDEXER_URL = os.getenv("WAZUH_INDEXER_URL", "https://wazuh-indexer:9200")
+WAZUH_INDEXER_USER = os.getenv("WAZUH_INDEXER_USER", "admin")
+WAZUH_INDEXER_PASSWORD = os.getenv("WAZUH_INDEXER_PASSWORD", "SecretPassword1")
+
 def fetch_wazuh_alerts():
+    """Queries real Wazuh alerts directly from the Wazuh Indexer (OpenSearch) —
+    the Manager API's /alerts endpoint doesn't exist; alerts live in the indexer."""
     try:
-        token = get_wazuh_token()
-        headers = {"Authorization": f"Bearer {token}"}
         resp = requests.get(
-            f"{WAZUH_API_URL}/alerts", headers=headers, verify=False,
-            timeout=10, params={"limit": 20, "sort": "-timestamp"}
+            f"{WAZUH_INDEXER_URL}/wazuh-alerts-*/_search",
+            auth=(WAZUH_INDEXER_USER, WAZUH_INDEXER_PASSWORD),
+            verify=False,
+            timeout=10,
+            json={"size": 20, "sort": [{"@timestamp": {"order": "desc"}}]}
         )
         resp.raise_for_status()
-        return resp.json().get("data", {}).get("affected_items", [])
+        hits = resp.json().get("hits", {}).get("hits", [])
+        return [h["_source"] for h in hits]
     except Exception as e:
-        print("Wazuh alert fetch error:", e)
+        print("Wazuh indexer fetch error:", e)
         return []
 
 
