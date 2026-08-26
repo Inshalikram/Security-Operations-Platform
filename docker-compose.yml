@@ -117,7 +117,7 @@ services:
     networks:
       sop-network:
         aliases:
-          - wazuh.manager
+          - wazuh.indexer
     depends_on:
       - wazuh-certs-generator
     
