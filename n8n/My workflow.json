@@ -1,0 +1,309 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "894b6428-a325-4e46-a9e3-a85cb6709d90",
+      "name": "Email Trigger (IMAP)",
+      "credentials": {
+        "imap": {
+          "id": "aJx3ze6oTiMxlTwX",
+          "name": "IMAP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://www.virustotal.com/api/v3/ip_addresses/{{ $json.ip }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "REDACTED_SET_VIA_N8N_CREDENTIAL"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        400,
+        0
+      ],
+      "id": "52881f07-7722-4f66-9c40-3e34044f2647",
+      "name": "Virus Total"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.item.json.textPlain || $input.item.json.textHtml || \"\";\nconst ipMatch = text.match(/\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b/);\nconst ip = ipMatch ? ipMatch[0] : null;\n\nreturn [\n  {\n    json: {\n      ip: ip,\n      subject: $input.item.json.subject || \"\",\n      from: $input.item.json.from || \"\"\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        0
+      ],
+      "id": "47d6b214-123f-4543-9045-e563072d15a4",
+      "name": "Extract IOC"
+    },
+    {
+      "parameters": {
+        "url": "=https://otx.alienvault.com/api/v1/indicators/IPv4/{{ $('Extract IOC').item.json.ip }}/general",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-OTX-API-KEY",
+              "value": "REDACTED_SET_VIA_N8N_CREDENTIAL"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        528,
+        0
+      ],
+      "id": "7e18c1b4-2ffa-4edd-8863-461398caf591",
+      "name": "OTX"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0151c5c9-3eb4-46da-843c-8e7f12f7ad36",
+              "leftValue": "={{ $json.ip }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        272,
+        0
+      ],
+      "id": "f29c173e-ad2f-475b-9b34-cbfe601b738a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "url": "=http://backend:8000/ai/executive-summary/{{ $('Extract IOC').item.json.ip }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        672,
+        0
+      ],
+      "id": "d13d4d4a-ce11-4c86-9e37-fe85a88c6edd",
+      "name": "AI Summary",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "P5lW9NI8K1ZWsNHa",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:8000/threat-intel/check/{{ $json.ip }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        800,
+        0
+      ],
+      "id": "e7e01034-db30-460d-867a-7206eb6d9f58",
+      "name": "Hive Case",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "P5lW9NI8K1ZWsNHa",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "REDACTED_SET_VIA_N8N_CREDENTIAL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"🚨 *Threat Alert*\\nIP: {{ $json.ip }}\\nVerdict: {{ $json.overall_verdict }}\\nMalicious Signals: {{ $json.malicious_signals }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        944,
+        0
+      ],
+      "id": "3b62410b-bca5-46b9-99e8-da5092526f2d",
+      "name": "Slack notification"
+    },
+    {
+      "parameters": {
+        "fromEmail": "inshalikram06@gmail.com",
+        "toEmail": "inshalikram174@gmail.com",
+        "subject": "=SOC Threat Report - {{ $('Hive Case').item.json.ip }}",
+        "emailFormat": "text",
+        "text": "=Threat Intelligence Report\n\nIP Address: {{ $('Hive Case').item.json.ip }}\nVerdict: {{ $('Hive Case').item.json.overall_verdict }}\nMalicious Signals: {{ $('Hive Case').item.json.malicious_signals }}\n\nGenerated automatically by SOC Platform.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1072,
+        0
+      ],
+      "id": "4126b9d0-3d97-4b00-a041-bcd1ab22cf1b",
+      "name": "Send an Email",
+      "webhookId": "7fd66e2b-0f47-496f-ba32-6923e5d0dc82",
+      "credentials": {
+        "smtp": {
+          "id": "0W1JvIkTYIFrupKY",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Extract IOC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Virus Total": {
+      "main": [
+        [
+          {
+            "node": "OTX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract IOC": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OTX": {
+      "main": [
+        [
+          {
+            "node": "AI Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Virus Total",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Summary": {
+      "main": [
+        [
+          {
+            "node": "Hive Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hive Case": {
+      "main": [
+        [
+          {
+            "node": "Slack notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack notification": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "66bbaba2-53c1-4057-9801-f694ad627fb4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d29d4644f42e951a57b72e6d07c174c2a7c2291b80df465fd7eed30e5ff7543c"
+  },
+  "nodeGroups": [],
+  "id": "cwNhM93NPaFIYNsk",
+  "tags": []
+}
