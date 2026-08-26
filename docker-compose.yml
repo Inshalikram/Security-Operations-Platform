@@ -140,6 +140,7 @@ services:
     restart: unless-stopped
     privileged: true
     pid: host
+    command: ["/usr/bin/falco", "-o", "file_output.enabled=true", "-o", "file_output.filename=/var/log/falco/falco.log"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /dev:/host/dev
@@ -148,6 +149,7 @@ services:
       - /lib/modules:/host/lib/modules:ro
       - /usr:/host/usr:ro
       - /etc:/host/etc:ro
+      - falco_logs:/var/log/falco
     networks:
       - sop-network
 
@@ -201,6 +203,7 @@ services:
     volumes:
       - suricata_logs:/var/log/suricata:ro
       - zeek_logs:/var/log/zeek:ro
+      - falco_logs:/var/log/falco:ro
     depends_on:
       - postgres
     restart: unless-stopped
@@ -350,6 +353,7 @@ volumes:
   n8n_data:
   grafana_data:
   traefik_letsencrypt:
+  falco_logs:
 
 networks:
   sop-network:

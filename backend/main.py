@@ -926,29 +926,68 @@ def sigma_evaluate(payload: SigmaEvaluateRequest, user=Depends(verify_token)):
 @app.get("/sigma/rules")
 def list_sigma_rules(user=Depends(verify_token)):
     return load_sigma_rules()
-# MISP_URL = os.getenv("MISP_URL")
-# MISP_API_KEY = os.getenv("MISP_API_KEY")
 
-# @app.get("/threat-intel/misp/{ip_address}")
-# def check_ip_misp(ip_address: str, user=Depends(verify_token)):
-#     headers = {
-#         "Authorization": MISP_API_KEY,
-#         "Accept": "application/json",
-#         "Content-Type": "application/json"
-#     }
-#     payload = {"returnFormat": "json", "value": ip_address, "type": "ip-src"}
-#     try:
-#         response = requests.post(f"{MISP_URL}/attributes/restSearch", headers=headers, json=payload, timeout=15, verify=False)
-#         data = response.json()
-#         attributes = data.get("response", {}).get("Attribute", [])
-#         return {
-#             "ip": ip_address,
-#             "matches_found": len(attributes),
-#             "events": [{"event_id": a.get("event_id"), "category": a.get("category")} for a in attributes]
-#         }
-#     except Exception as e:
-#         return {"error": str(e)}
+FALCO_LOG_PATH = "/var/log/falco/falco.log"
+@app.get("/security-monitoring/status")
+def monitoring_status(user=Depends(verify_token)):
+    db = SessionLocal()
+    status = {}
 
+    try:
+        latest = db.query(SuricataAlert).order_by(SuricataAlert.timestamp.desc()).first()
+        count = db.query(SuricataAlert).count()
+        has_data = os.path.exists(SURICATA_LOG_PATH) and os.path.getsize(SURICATA_LOG_PATH) > 0
+        status["suricata"] = {"label": "Suricata IDS", "monitors": "Network intrusion detection", "healthy": has_data, "total_alerts_ingested": count, "last_alert_at": latest.timestamp.isoformat() if latest else None}
+    except Exception as e:
+        status["suricata"] = {"label": "Suricata IDS", "healthy": False, "error": str(e)}
+
+    try:
+        latest = db.query(ZeekNotice).order_by(ZeekNotice.timestamp.desc()).first()
+        count = db.query(ZeekNotice).count()
+        has_data = os.path.exists(ZEEK_NOTICE_LOG_PATH) and os.path.getsize(ZEEK_NOTICE_LOG_PATH) > 0
+        status["zeek"] = {"label": "Zeek NSM", "monitors": "Network traffic analysis", "healthy": has_data, "total_notices_ingested": count, "last_notice_at": latest.timestamp.isoformat() if latest else None}
+    except Exception as e:
+        status["zeek"] = {"label": "Zeek NSM", "healthy": False, "error": str(e)}
+
+    try:
+        token = get_wazuh_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = requests.get(f"{WAZUH_API_URL}/manager/status", headers=headers, verify=False, timeout=10)
+        resp.raise_for_status()
+        procs = resp.json().get("data", {}).get("affected_items", [{}])[0]
+        running = sum(1 for v in procs.values() if v == "running")
+        status["wazuh"] = {"label": "Wazuh SIEM/XDR", "monitors": "Host detection & file integrity", "healthy": running > 0, "core_processes_running": running}
+    except Exception as e:
+        status["wazuh"] = {"label": "Wazuh SIEM/XDR", "healthy": False, "error": str(e)}
+
+    try:
+        has_data = os.path.exists(FALCO_LOG_PATH) and os.path.getsize(FALCO_LOG_PATH) > 0
+        status["falco"] = {"label": "Falco Runtime Security", "monitors": "Syscall / runtime anomaly detection", "healthy": has_data, "detail": "Detecting runtime events" if has_data else "No events logged yet"}
+    except Exception as e:
+        status["falco"] = {"label": "Falco Runtime Security", "healthy": False, "error": str(e)}
+
+    db.close()
+    status["overall_healthy"] = all(s.get("healthy", False) for s in status.values() if isinstance(s, dict))
+    return status
+
+
+@app.get("/alerts/unified")
+def get_unified_alerts(user=Depends(verify_token)):
+    db = SessionLocal()
+    unified = []
+
+    for i in db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(30).all():
+        unified.append({"source": "threat-intel", "title": i.ip_address, "severity": i.verdict, "detail": f"{i.malicious_signals} signal(s)", "timestamp": i.checked_at.isoformat()})
+
+    for s in db.query(SuricataAlert).order_by(SuricataAlert.timestamp.desc()).limit(30).all():
+        unified.append({"source": "suricata", "title": s.signature or "Suricata alert", "severity": "malicious" if (s.severity or 3) <= 2 else "suspicious", "detail": f"{s.src_ip} → {s.dest_ip}", "timestamp": s.timestamp.isoformat()})
+
+    for z in db.query(ZeekNotice).order_by(ZeekNotice.timestamp.desc()).limit(30).all():
+        unified.append({"source": "zeek", "title": z.note_type or "Zeek notice", "severity": "suspicious", "detail": z.message or f"{z.src_ip} → {z.dest_ip}", "timestamp": z.timestamp.isoformat()})
+
+    db.close()
+    unified.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"count": len(unified), "alerts": unified[:50]}
 
 # ── Suricata alert ingestion — model already defined above (near Base.metadata.create_all()) ──
 SURICATA_LOG_PATH = "/var/log/suricata/eve.json"
@@ -1175,7 +1214,6 @@ def get_zeek_notices(user=Depends(verify_token)):
             "dest_ip": n.dest_ip
         } for n in notices
     ]
-
 
 # ══════════════════════════════════════════════════════════════════════════
 # CASE MANAGEMENT — list/view cases from TheHive (for the frontend Cases page)

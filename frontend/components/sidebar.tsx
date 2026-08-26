@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/search", label: "Search" },
   { href: "/log-search", label: "Log Search" },
   { href: "/threat-map", label: "Threat Map" },
+  { href: "/network-status", label: "Network Status" }, 
   { href: "/ai-chat", label: "AI Chat" },
   { href: "/settings", label: "Settings" },
 ]
