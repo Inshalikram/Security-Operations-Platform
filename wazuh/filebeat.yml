@@ -5,10 +5,9 @@ filebeat.inputs:
     json.keys_under_root: true
 
 output.elasticsearch:
-  hosts: ["https://wazuh.indexer:9200"]
+  hosts: ["https://wazuh-indexer:9200"]
   username: "admin"
   password: "SecretPassword1"
-  ssl.certificate_authorities: ["/etc/filebeat/certs/wazuh-indexer/root-ca.pem"]
-  ssl.certificate: "/etc/filebeat/certs/wazuh-manager/wazuh-manager.pem"
-  ssl.key: "/etc/filebeat/certs/wazuh-manager/wazuh-manager-key.pem"
-  
+  ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
+  ssl.certificate: "/etc/filebeat/certs/wazuh.manager.pem"
+  ssl.key: "/etc/filebeat/certs/wazuh.manager-key.pem"
