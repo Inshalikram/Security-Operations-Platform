@@ -1,7 +1,5 @@
 network.host: 0.0.0.0
 node.name: wazuh-indexer
-cluster.initial_master_nodes:
-  - wazuh-indexer
 cluster.name: wazuh-cluster
 discovery.type: single-node
 plugins.security.ssl.http.pemcert_filepath: /usr/share/wazuh-indexer/certs/wazuh.indexer.pem
