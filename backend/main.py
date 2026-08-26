@@ -5,7 +5,8 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from datetime import datetime, timedelta
+import asyncio
 from pydantic import BaseModel
 from typing import Optional
 from auth import verify_token
@@ -94,6 +95,27 @@ class ZeekNotice(Base):
     src_ip = Column(String, nullable=True)
     dest_ip = Column(String, nullable=True)
     raw_event = Column(JSON)
+
+
+# ── Falco runtime security events ──
+class FalcoEvent(Base):
+    __tablename__ = "falco_events"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    rule = Column(String)
+    priority = Column(String)
+    output = Column(String)
+    raw_event = Column(JSON)
+
+
+# ── System/tool-health alerts (monitoring tool down, or non-log-based alerts like Wazuh) ──
+class SystemAlert(Base):
+    __tablename__ = "system_alerts"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    tool = Column(String)
+    message = Column(String)
+    severity = Column(String, default="warning")
 
 
 # ── Knowledge base chunks for RAG — Sigma rules, MITRE ATT&CK, CVEs, playbooks, docs ──
@@ -562,8 +584,8 @@ def unified_threat_check(ip_address: str):
     db.close()
     # Broadcast to WebSocket clients (fire-and-forget, safe even if no clients connected)
     try:
-        import asyncio
-        asyncio.run(manager.broadcast({
+        import asyncio as _asyncio
+        _asyncio.run(manager.broadcast({
             "type": "new_alert",
             "ip": result["ip"],
             "verdict": result["overall_verdict"],
@@ -928,6 +950,123 @@ def list_sigma_rules(user=Depends(verify_token)):
     return load_sigma_rules()
 
 FALCO_LOG_PATH = "/var/log/falco/falco.log"
+
+
+# ── Falco event ingestion — parses Falco's JSON-lines log file ──
+def parse_falco_events():
+    """Reads Falco's JSON-lines log, extracts new runtime security events, saves to DB."""
+    if not os.path.exists(FALCO_LOG_PATH):
+        return {"error": "Falco log not found"}
+    db = SessionLocal()
+    new_events = 0
+    with open(FALCO_LOG_PATH, "r") as f:
+        lines = f.readlines()[-5000:]
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rule = event.get("rule")
+        output = event.get("output", "")
+        if not rule:
+            continue
+        already_exists = db.query(FalcoEvent).filter(
+            FalcoEvent.rule == rule, FalcoEvent.output == output
+        ).first()
+        if already_exists:
+            continue
+        db.add(FalcoEvent(rule=rule, priority=event.get("priority", "warning"), output=output, raw_event=event))
+        new_events += 1
+    db.commit()
+    db.close()
+    return {"new_events_ingested": new_events}
+
+
+@app.post("/security-monitoring/falco/ingest")
+def ingest_falco_events(user=Depends(verify_token)):
+    """Manually trigger ingestion of Falco events from falco.log into the platform DB."""
+    try:
+        return parse_falco_events()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/security-monitoring/falco/events")
+def get_falco_events(user=Depends(verify_token)):
+    """Return the most recent Falco runtime security events stored in the platform."""
+    db = SessionLocal()
+    events = db.query(FalcoEvent).order_by(FalcoEvent.timestamp.desc()).limit(50).all()
+    db.close()
+    return [
+        {
+            "id": e.id, "timestamp": e.timestamp.isoformat(),
+            "rule": e.rule, "priority": e.priority, "output": e.output
+        } for e in events
+    ]
+
+
+# ── Wazuh alert fetcher — pulls recent alerts (not just health status) from Wazuh's REST API ──
+def fetch_wazuh_alerts():
+    try:
+        token = get_wazuh_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = requests.get(
+            f"{WAZUH_API_URL}/alerts", headers=headers, verify=False,
+            timeout=10, params={"limit": 20, "sort": "-timestamp"}
+        )
+        resp.raise_for_status()
+        return resp.json().get("data", {}).get("affected_items", [])
+    except Exception as e:
+        print("Wazuh alert fetch error:", e)
+        return []
+
+
+# ── Background watchdog — runs continuously in the background, no manual trigger needed.
+# Every 60s: ingests new Suricata/Zeek/Falco log data + new Wazuh alerts into Postgres,
+# and raises a SystemAlert if any tool is silent (with a 30-min per-tool cooldown to avoid spam). ──
+async def monitoring_watchdog():
+    while True:
+        try:
+            parse_suricata_alerts()
+            parse_zeek_notices()
+            parse_falco_events()
+
+            db = SessionLocal()
+            for a in fetch_wazuh_alerts():
+                rule_desc = a.get("rule", {}).get("description", "Wazuh alert")
+                already_exists = db.query(SystemAlert).filter(
+                    SystemAlert.tool == "wazuh", SystemAlert.message == rule_desc,
+                    SystemAlert.timestamp >= datetime.utcnow() - timedelta(minutes=5)
+                ).first()
+                if not already_exists:
+                    db.add(SystemAlert(tool="wazuh", message=rule_desc, severity="critical"))
+            db.commit()
+
+            checks = {
+                "suricata": os.path.exists(SURICATA_LOG_PATH) and os.path.getsize(SURICATA_LOG_PATH) > 0,
+                "zeek": os.path.exists(ZEEK_NOTICE_LOG_PATH) and os.path.getsize(ZEEK_NOTICE_LOG_PATH) > 0,
+                "falco": os.path.exists(FALCO_LOG_PATH) and os.path.getsize(FALCO_LOG_PATH) > 0,
+            }
+            for tool, healthy in checks.items():
+                if not healthy:
+                    recent = db.query(SystemAlert).filter(
+                        SystemAlert.tool == tool,
+                        SystemAlert.timestamp >= datetime.utcnow() - timedelta(minutes=30)
+                    ).first()
+                    if not recent:
+                        db.add(SystemAlert(tool=tool, message=f"{tool} monitoring tool is not reporting data", severity="warning"))
+                        db.commit()
+            db.close()
+        except Exception as e:
+            print("Monitoring watchdog error:", e)
+        await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def start_watchdog():
+    asyncio.create_task(monitoring_watchdog())
+
+
 @app.get("/security-monitoring/status")
 def monitoring_status(user=Depends(verify_token)):
     db = SessionLocal()
@@ -984,6 +1123,24 @@ def get_unified_alerts(user=Depends(verify_token)):
 
     for z in db.query(ZeekNotice).order_by(ZeekNotice.timestamp.desc()).limit(30).all():
         unified.append({"source": "zeek", "title": z.note_type or "Zeek notice", "severity": "suspicious", "detail": z.message or f"{z.src_ip} → {z.dest_ip}", "timestamp": z.timestamp.isoformat()})
+
+    for fe in db.query(FalcoEvent).order_by(FalcoEvent.timestamp.desc()).limit(30).all():
+        unified.append({
+            "source": "falco",
+            "title": fe.rule,
+            "severity": "malicious" if fe.priority in ("Critical", "Emergency", "Alert") else "suspicious",
+            "detail": fe.output,
+            "timestamp": fe.timestamp.isoformat()
+        })
+
+    for sa in db.query(SystemAlert).order_by(SystemAlert.timestamp.desc()).limit(30).all():
+        unified.append({
+            "source": "monitoring",
+            "title": f"{sa.tool} alert",
+            "severity": sa.severity,
+            "detail": sa.message,
+            "timestamp": sa.timestamp.isoformat()
+        })
 
     db.close()
     unified.sort(key=lambda x: x["timestamp"], reverse=True)
