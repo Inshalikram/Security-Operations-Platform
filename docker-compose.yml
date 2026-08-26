@@ -115,9 +115,12 @@ services:
     ports:
       - "9201:9200"
     networks:
-      - sop-network
+      sop-network:
+        aliases:
+          - wazuh.manager
     depends_on:
       - wazuh-certs-generator
+    
 
   wazuh-manager:
     image: wazuh/wazuh-manager:4.9.0
@@ -141,7 +144,9 @@ services:
       - wazuh-certs-generator
       - wazuh-indexer
     networks:
-      - sop-network
+      sop-network:
+        aliases:
+          - wazuh.manager
 
   suricata:
     image: jasonish/suricata:latest
@@ -235,7 +240,7 @@ services:
       - WAZUH_API_URL=https://wazuh-manager:55000
       - WAZUH_API_USER=wazuh
       - WAZUH_API_PASSWORD=WazuhApi123!
-      - WAZUH_INDEXER_URL=https://wazuh-indexer:9200
+      - WAZUH_INDEXER_URL=https://wazuh.indexer:9200
       - WAZUH_INDEXER_USER=admin
       - WAZUH_INDEXER_PASSWORD=SecretPassword1
     ports:
