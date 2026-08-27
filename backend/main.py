@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import asyncio
 from pydantic import BaseModel
 from typing import Optional
-from auth import verify_token
+from auth import verify_token, require_role
 from agents import run_threat_hunt, run_triage, run_malware_investigation, run_exec_report
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocket, WebSocketDisconnect
@@ -1601,7 +1601,7 @@ def create_asset(payload: AssetCreate, user=Depends(verify_token)):
     return {"id": asset.id, "message": "Asset created"}
 
 @app.delete("/assets/{asset_id}")
-def delete_asset(asset_id: int, user=Depends(verify_token)):
+def delete_asset(asset_id: int, user=Depends(require_role("analyst"))):
     db = SessionLocal()
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
@@ -1642,7 +1642,7 @@ def create_organization(payload: OrganizationCreate, user=Depends(verify_token))
     return {"id": org.id, "message": "Organization created"}
 
 @app.delete("/organizations/{org_id}")
-def delete_organization(org_id: int, user=Depends(verify_token)):
+def delete_organization(org_id: int, user=Depends(require_role("analyst"))):
     db = SessionLocal()
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
