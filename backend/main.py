@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, Request, HTTPException
 import os
+import ipaddress
 import requests
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
@@ -463,6 +464,36 @@ def verify_api_key(request: Request):
     if not key or key not in API_KEYS:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     return {"status": "ok"}
+
+
+# ── Internal helpers for automatic threat-intel enrichment of IPs seen in
+# Suricata/Zeek/Wazuh alerts (used by monitoring_watchdog() below). ──
+
+def is_private_or_reserved_ip(ip: str) -> bool:
+    """Internal/private/reserved IPs (RFC1918, loopback, etc.) ke liye threat-intel
+    APIs ke paas kabhi useful data nahi hota — inhe skip karo taake free-tier API
+    quota (VirusTotal/AbuseIPDB/Shodan) waste na ho."""
+    try:
+        addr = ipaddress.ip_address(ip)
+        return addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local
+    except (ValueError, TypeError):
+        return True  # parse hi na ho paye to enrich mat karo
+
+
+def enrich_ip_from_alert(ip_address: str, source_tool: str):
+    """Suricata/Zeek/Wazuh se mila koi bhi IP yahan se guzarta hai — yehi kaam hai jo
+    ek analyst manually Search page pe karta, ab automatic. unified_threat_check()
+    khud hi per-IP cache karta hai (Redis, threat:{ip} key), isliye same IP baar baar
+    alert ho to bhi extra API calls nahi hongi — cache se serve hoga."""
+    if not ip_address or is_private_or_reserved_ip(ip_address):
+        return
+    try:
+        result = unified_threat_check(ip_address)
+        print(f"Auto-enriched {ip_address} (source: {source_tool}) -> verdict={result.get('overall_verdict')}")
+    except Exception as e:
+        print(f"Auto-enrichment failed for {ip_address} (source: {source_tool}):", e)
+
+
 # ── Internal function (NOT an endpoint) — reused by AI features, agents, and the protected endpoint below.
 # Kept auth-free here because Depends() only works on HTTP-routed functions, not direct Python calls. ──
 def unified_threat_check(ip_address: str):
@@ -1007,7 +1038,7 @@ def get_falco_events(user=Depends(verify_token)):
 
 # ── Wazuh alert fetcher — pulls recent alerts (not just health status) from Wazuh's REST API ──
 # ── Wazuh Indexer config — this is where real alerts actually live (not the Manager API) ──
-WAZUH_INDEXER_URL = os.getenv("WAZUH_INDEXER_URL", "https://wazuh-indexer:9200")
+WAZUH_INDEXER_URL = os.getenv("WAZUH_INDEXER_URL", "https://wazuh.indexer:9200")
 WAZUH_INDEXER_USER = os.getenv("WAZUH_INDEXER_USER", "admin")
 WAZUH_INDEXER_PASSWORD = os.getenv("WAZUH_INDEXER_PASSWORD", "SecretPassword1")
 
@@ -1032,7 +1063,8 @@ def fetch_wazuh_alerts():
 
 # ── Background watchdog — runs continuously in the background, no manual trigger needed.
 # Every 60s: ingests new Suricata/Zeek/Falco log data + new Wazuh alerts into Postgres,
-# and raises a SystemAlert if any tool is silent (with a 30-min per-tool cooldown to avoid spam). ──
+# auto-enriches any IPs seen in those alerts via threat-intel APIs, and raises a
+# SystemAlert if any tool is silent/unhealthy (with a 30-min per-tool cooldown to avoid spam). ──
 async def monitoring_watchdog():
     while True:
         try:
@@ -1041,6 +1073,7 @@ async def monitoring_watchdog():
             parse_falco_events()
 
             db = SessionLocal()
+            wazuh_ips_to_enrich = []   # ── auto-enrichment: Wazuh alert IPs ──
             for a in fetch_wazuh_alerts():
                 rule_desc = a.get("rule", {}).get("description", "Wazuh alert")
                 already_exists = db.query(SystemAlert).filter(
@@ -1049,12 +1082,20 @@ async def monitoring_watchdog():
                 ).first()
                 if not already_exists:
                     db.add(SystemAlert(tool="wazuh", message=rule_desc, severity="critical"))
+                    wazuh_ip = a.get("data", {}).get("srcip") or a.get("agent", {}).get("ip")
+                    if wazuh_ip:
+                        wazuh_ips_to_enrich.append(wazuh_ip)
             db.commit()
+
+            # ── Naye Wazuh alerts ke IPs khud-b-khud VirusTotal/AbuseIPDB/OTX/Shodan se check karo ──
+            for ip in set(wazuh_ips_to_enrich):
+                enrich_ip_from_alert(ip, "wazuh")
 
             checks = {
                 "suricata": os.path.exists(SURICATA_LOG_PATH) and os.path.getsize(SURICATA_LOG_PATH) > 0,
                 "zeek": os.path.exists(ZEEK_NOTICE_LOG_PATH) and os.path.getsize(ZEEK_NOTICE_LOG_PATH) > 0,
                 "falco": os.path.exists(FALCO_LOG_PATH) and os.path.getsize(FALCO_LOG_PATH) > 0,
+                "wazuh": check_wazuh_healthy(),
             }
             for tool, healthy in checks.items():
                 if not healthy:
@@ -1161,13 +1202,15 @@ SURICATA_LOG_PATH = "/var/log/suricata/eve.json"
 def parse_suricata_alerts():
     """Reads Suricata's eve.json, extracts 'alert' events, saves new ones to DB.
     Only scans the most recent chunk of the file to avoid re-parsing a multi-MB
-    file (and timing out the request) on every call."""
+    file (and timing out the request) on every call. Also collects the IPs seen
+    in newly-ingested alerts so the caller can auto-enrich them via threat-intel."""
     if not os.path.exists(SURICATA_LOG_PATH):
         return {"error": "Suricata log file not found — is the suricata_logs volume mounted?"}
 
     db = SessionLocal()
     existing_count = db.query(SuricataAlert).count()
     new_alerts = 0
+    ips_to_enrich = []   # ── auto-enrichment: Suricata alert IPs ──
 
     MAX_LINES_TO_SCAN = 5000  # only look at the most recent chunk of the file
 
@@ -1203,6 +1246,12 @@ def parse_suricata_alerts():
         db.add(record)
         new_alerts += 1
         SURICATA_ALERTS_INGESTED.inc()
+
+        if event.get("src_ip"):
+            ips_to_enrich.append(event.get("src_ip"))
+        if event.get("dest_ip"):
+            ips_to_enrich.append(event.get("dest_ip"))
+
         # ── Index into Elasticsearch for /search — best-effort, never breaks ingestion ──
         index_document("suricata_alerts", f"{record.src_ip}-{record.signature}-{new_alerts}", {
             "src_ip": record.src_ip,
@@ -1214,6 +1263,11 @@ def parse_suricata_alerts():
 
     db.commit()
     db.close()
+
+    # ── Naye Suricata alerts ke IPs khud-b-khud VirusTotal/AbuseIPDB/OTX/Shodan se check karo ──
+    for ip in set(ips_to_enrich):
+        enrich_ip_from_alert(ip, "suricata")
+
     return {"new_alerts_ingested": new_alerts, "total_alerts": existing_count + new_alerts}
 
 
@@ -1261,6 +1315,21 @@ def get_wazuh_token():
     return resp.json()["data"]["token"]
 
 
+def check_wazuh_healthy() -> bool:
+    """monitoring_watchdog() ke liye — agar Wazuh Manager down/unreachable ho to False.
+    (Function definition yahan neeche hai jabke monitoring_watchdog() upar hai — Python
+    mein yeh chalega, kyunki functions call-time pe resolve hoti hain, def-time pe nahi.)"""
+    try:
+        token = get_wazuh_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = requests.get(f"{WAZUH_API_URL}/manager/status", headers=headers, verify=False, timeout=10)
+        resp.raise_for_status()
+        procs = resp.json().get("data", {}).get("affected_items", [{}])[0]
+        return sum(1 for v in procs.values() if v == "running") > 0
+    except Exception:
+        return False
+
+
 @app.get("/security-monitoring/wazuh/status")
 def wazuh_status(user=Depends(verify_token)):
     """Returns Wazuh manager health status — confirms the SIEM backend is reachable and running."""
@@ -1292,13 +1361,15 @@ ZEEK_NOTICE_LOG_PATH = "/var/log/zeek/notice.log"
 
 def parse_zeek_notices():
     """Reads Zeek's notice.log (tab-separated with # header lines), extracts
-    notable-traffic events, saves new ones to DB."""
+    notable-traffic events, saves new ones to DB. Also collects the IPs seen
+    in newly-ingested notices so the caller can auto-enrich them via threat-intel."""
     if not os.path.exists(ZEEK_NOTICE_LOG_PATH):
         return {"error": "Zeek notice.log not found — is the zeek_logs volume mounted?"}
 
     db = SessionLocal()
     existing_count = db.query(ZeekNotice).count()
     new_notices = 0
+    ips_to_enrich = []   # ── auto-enrichment: Zeek notice IPs ──
 
     fields = []
     with open(ZEEK_NOTICE_LOG_PATH, "r") as f:
@@ -1341,6 +1412,12 @@ def parse_zeek_notices():
             )
             db.add(record)
             new_notices += 1
+
+            if record.src_ip:
+                ips_to_enrich.append(record.src_ip)
+            if record.dest_ip:
+                ips_to_enrich.append(record.dest_ip)
+
             # ── Index into Elasticsearch for /search — best-effort, never breaks ingestion ──
             index_document("zeek_notices", f"{record.note_type}-{record.src_ip}-{new_notices}", {
                 "note_type": record.note_type,
@@ -1352,6 +1429,11 @@ def parse_zeek_notices():
 
     db.commit()
     db.close()
+
+    # ── Naye Zeek notices ke IPs khud-b-khud VirusTotal/AbuseIPDB/OTX/Shodan se check karo ──
+    for ip in set(ips_to_enrich):
+        enrich_ip_from_alert(ip, "zeek")
+
     return {"new_notices_ingested": new_notices, "total_notices": existing_count + new_notices}
 
 
