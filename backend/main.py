@@ -643,7 +643,7 @@ def unified_threat_check(ip_address: str):
                 f"{THEHIVE_URL}/api/v1/case",
                 json=case_payload,
                 headers=hive_headers,
-                timeout=10
+                timeout=30
             )
             result["thehive_case"] = hive_resp.json() if hive_resp.status_code < 300 else {"error": hive_resp.text}
             # ── Track incident creation rate ──
