@@ -3,6 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useSession } from "next-auth/react"
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -21,6 +22,9 @@ const NAV_ITEMS = [
 export default function Sidebar() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
+  const { status } = useSession()
+
+  if (status !== "authenticated") return null
 
   return (
     <>
