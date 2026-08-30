@@ -2,7 +2,16 @@ import os
 from elasticsearch import Elasticsearch
 
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://elasticsearch:9200")
-es = Elasticsearch(ELASTICSEARCH_URL)
+
+# ── Increased request timeout (default is too short for a VPS under memory
+# pressure) + automatic retry so one slow response doesn't silently fail
+# the whole search — this is why Log Search worked "sometimes". ──
+es = Elasticsearch(
+    ELASTICSEARCH_URL,
+    request_timeout=30,
+    max_retries=3,
+    retry_on_timeout=True,
+)
 
 VALID_INDICES = ["suricata_alerts", "zeek_notices", "threat_indicators", "cases"]
 
