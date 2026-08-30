@@ -29,6 +29,8 @@ export default function Sidebar() {
     setMounted(true)
   }, [])
 
+  // Root/login page never shows the sidebar, regardless of session state
+  if (pathname === "/") return null
   if (!mounted || status !== "authenticated") return null
 
   return (
