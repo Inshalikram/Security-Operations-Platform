@@ -19,15 +19,20 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings" },
 ]
 
+
+
 export default function Sidebar() {
   const [open, setOpen] = useState(false)
   const pathname = usePathname()
   const { status } = useSession()
 
+  console.log("SIDEBAR STATUS DEBUG:", status)  // TEMPORARY
+
   if (status !== "authenticated") return null
 
   return (
     <>
+      {/* Hamburger button ... */}
       {/* Hamburger button — now scrolls away with the page instead of staying pinned */}
       <button
         onClick={() => setOpen(true)}
