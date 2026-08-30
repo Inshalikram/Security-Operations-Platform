@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
@@ -14,21 +14,22 @@ const NAV_ITEMS = [
   { href: "/search", label: "Search" },
   { href: "/log-search", label: "Log Search" },
   { href: "/threat-map", label: "Threat Map" },
-  { href: "/network-status", label: "Network Status" }, 
+  { href: "/network-status", label: "Network Status" },
   { href: "/ai-chat", label: "AI Chat" },
   { href: "/settings", label: "Settings" },
 ]
 
-
-
 export default function Sidebar() {
   const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const pathname = usePathname()
   const { status } = useSession()
 
-  console.log("SIDEBAR STATUS DEBUG:", status)  // TEMPORARY
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
-  if (status !== "authenticated") return null
+  if (!mounted || status !== "authenticated") return null
 
   return (
     <>
