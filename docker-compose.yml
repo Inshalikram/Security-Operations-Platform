@@ -77,6 +77,8 @@ services:
     restart: unless-stopped
     ports:
       - "9003:9000"
+    volumes:
+      - ./thehive/application.conf:/etc/thehive/application.conf
     environment:
       JVM_OPTS: "-Xms1G -Xmx1G"
     networks:
