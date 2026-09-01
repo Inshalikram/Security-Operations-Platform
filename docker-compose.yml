@@ -79,6 +79,7 @@ services:
       - "9003:9000"
     volumes:
       - ./thehive/application.conf:/etc/thehive/application.conf
+      - thehive_data:/data
     environment:
       JVM_OPTS: "-Xms1G -Xmx1G"
     networks:
@@ -388,6 +389,7 @@ volumes:
   falco_logs:
   wazuh_certs:
   wazuh_indexer_data:
+  thehive_data:
 
 networks:
   sop-network:
