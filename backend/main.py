@@ -503,17 +503,38 @@ def unified_threat_check(ip_address: str):
     result = {
         "ip": ip_address,
         "sources_checked": [],
+        "sources_failed": [],
         "overall_verdict": "unknown",
         "malicious_signals": 0,
         "details": {}
     }
 
+    def classify_error(e, resp=None):
+        """Turns a raw exception/response into a specific, useful error string."""
+        if resp is not None:
+            if resp.status_code == 401 or resp.status_code == 403:
+                return f"auth_error: invalid or missing API key (HTTP {resp.status_code})"
+            if resp.status_code == 429:
+                return "rate_limited: API quota/rate limit exceeded (HTTP 429)"
+            if resp.status_code >= 500:
+                return f"provider_error: upstream service issue (HTTP {resp.status_code})"
+            if resp.status_code >= 400:
+                return f"client_error: bad request (HTTP {resp.status_code})"
+        if isinstance(e, requests.exceptions.Timeout):
+            return "timeout: request took too long"
+        if isinstance(e, requests.exceptions.ConnectionError):
+            return "connection_error: could not reach provider"
+        return f"error: {str(e)}"
+
     # VirusTotal
     try:
         vt_headers = {"x-apikey": VT_API_KEY}
         vt_url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip_address}"
-        vt_resp = requests.get(vt_url, headers=vt_headers, timeout=10).json()
-        vt_attr = vt_resp.get("data", {}).get("attributes", {})
+        vt_resp = requests.get(vt_url, headers=vt_headers, timeout=12)
+        if vt_resp.status_code != 200:
+            raise requests.exceptions.HTTPError(response=vt_resp)
+        vt_json = vt_resp.json()
+        vt_attr = vt_json.get("data", {}).get("attributes", {})
         vt_malicious = vt_attr.get("total_votes", {}).get("malicious", 0)
         result["details"]["virustotal"] = {
             "reputation": vt_attr.get("reputation"),
@@ -523,15 +544,21 @@ def unified_threat_check(ip_address: str):
         result["sources_checked"].append("virustotal")
         if vt_malicious and vt_malicious > 5:
             result["malicious_signals"] += 1
+    except requests.exceptions.HTTPError as e:
+        result["details"]["virustotal"] = {"error": classify_error(e, e.response)}
+        result["sources_failed"].append("virustotal")
     except Exception as e:
-        result["details"]["virustotal"] = {"error": str(e)}
+        result["details"]["virustotal"] = {"error": classify_error(e)}
+        result["sources_failed"].append("virustotal")
 
     # AbuseIPDB
     try:
         abuse_headers = {"Key": ABUSEIPDB_API_KEY, "Accept": "application/json"}
         abuse_params = {"ipAddress": ip_address, "maxAgeInDays": 90}
-        abuse_resp = requests.get("https://api.abuseipdb.com/api/v2/check", headers=abuse_headers, params=abuse_params, timeout=10).json()
-        abuse_data = abuse_resp.get("data", {})
+        abuse_resp = requests.get("https://api.abuseipdb.com/api/v2/check", headers=abuse_headers, params=abuse_params, timeout=12)
+        if abuse_resp.status_code != 200:
+            raise requests.exceptions.HTTPError(response=abuse_resp)
+        abuse_data = abuse_resp.json().get("data", {})
         abuse_score = abuse_data.get("abuseConfidenceScore", 0)
         result["details"]["abuseipdb"] = {
             "abuse_confidence_score": abuse_score,
@@ -540,43 +567,65 @@ def unified_threat_check(ip_address: str):
         result["sources_checked"].append("abuseipdb")
         if abuse_score and abuse_score > 20:
             result["malicious_signals"] += 1
+    except requests.exceptions.HTTPError as e:
+        result["details"]["abuseipdb"] = {"error": classify_error(e, e.response)}
+        result["sources_failed"].append("abuseipdb")
     except Exception as e:
-        result["details"]["abuseipdb"] = {"error": str(e)}
+        result["details"]["abuseipdb"] = {"error": classify_error(e)}
+        result["sources_failed"].append("abuseipdb")
 
     # OTX
     try:
         otx_headers = {"X-OTX-API-KEY": OTX_API_KEY}
         otx_url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{ip_address}/general"
-        otx_resp = requests.get(otx_url, headers=otx_headers, timeout=20).json()
-        pulse_count = otx_resp.get("pulse_info", {}).get("count", 0)
+        otx_resp = requests.get(otx_url, headers=otx_headers, timeout=12)
+        if otx_resp.status_code != 200:
+            raise requests.exceptions.HTTPError(response=otx_resp)
+        otx_json = otx_resp.json()
+        pulse_count = otx_json.get("pulse_info", {}).get("count", 0)
         result["details"]["otx"] = {
-            "reputation": otx_resp.get("reputation"),
+            "reputation": otx_json.get("reputation"),
             "pulse_count": pulse_count,
-            "country": otx_resp.get("country_name")
+            "country": otx_json.get("country_name")
         }
         result["sources_checked"].append("otx")
         if pulse_count and pulse_count > 3:
             result["malicious_signals"] += 1
+    except requests.exceptions.HTTPError as e:
+        result["details"]["otx"] = {"error": classify_error(e, e.response)}
+        result["sources_failed"].append("otx")
     except Exception as e:
-        result["details"]["otx"] = {"error": str(e)}
+        result["details"]["otx"] = {"error": classify_error(e)}
+        result["sources_failed"].append("otx")
 
     # Shodan
     try:
         shodan_url = f"https://api.shodan.io/shodan/host/{ip_address}?key={SHODAN_API_KEY}"
-        shodan_resp = requests.get(shodan_url, timeout=10).json()
-        vulns = list(shodan_resp.get("vulns", []))
+        shodan_resp = requests.get(shodan_url, timeout=12)
+        if shodan_resp.status_code != 200:
+            raise requests.exceptions.HTTPError(response=shodan_resp)
+        shodan_json = shodan_resp.json()
+        vulns = list(shodan_json.get("vulns", []))
         result["details"]["shodan"] = {
-            "open_ports": shodan_resp.get("ports"),
+            "open_ports": shodan_json.get("ports"),
             "vulns": vulns
         }
         result["sources_checked"].append("shodan")
         if vulns and len(vulns) > 0:
             result["malicious_signals"] += 1
+    except requests.exceptions.HTTPError as e:
+        result["details"]["shodan"] = {"error": classify_error(e, e.response)}
+        result["sources_failed"].append("shodan")
     except Exception as e:
-        result["details"]["shodan"] = {"error": str(e)}
+        result["details"]["shodan"] = {"error": classify_error(e)}
+        result["sources_failed"].append("shodan")
 
-    # Final verdict
-    if result["malicious_signals"] >= 2:
+    # ── Final verdict ──
+    # Agar koi bhi source successfully check nahi hua, to "clean" declare karna
+    # misleading hai — humein pata hi nahi chala. "unknown" zyada honest hai.
+    if not result["sources_checked"]:
+        result["overall_verdict"] = "unknown"
+    elif result["malicious_signals"] >= 2:
         result["overall_verdict"] = "malicious"
     elif result["malicious_signals"] == 1:
         result["overall_verdict"] = "suspicious"
@@ -651,7 +700,11 @@ def unified_threat_check(ip_address: str):
                 INCIDENTS_CREATED.inc()
         except Exception as e:
             result["thehive_case"] = {"error": str(e)}
-    set_cached(f"threat:{ip_address}", result)
+
+    # ── Cache only if at least one source succeeded — don't cache a total-failure result,
+    # so a retry a minute later can succeed once the outage clears. ──
+    if result["sources_checked"]:
+        set_cached(f"threat:{ip_address}", result)
     return result
 
 
