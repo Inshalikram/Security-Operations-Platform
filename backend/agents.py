@@ -1,65 +1,45 @@
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List
-import requests
 import os
 
-# ── Agent State — what the agent carries between steps ──
+# ═══════════════════════════════════════════
+# AGENT 1: Threat Hunting Agent
+# Investigates an IP using unified threat intelligence
+# (VirusTotal + AbuseIPDB + OTX + Shodan via unified_threat_check)
+# ═══════════════════════════════════════════
+
 class ThreatHuntState(TypedDict):
     ip_address: str
     findings: dict
     steps_taken: List[str]
     report: str
 
-# ── Step 1: Query VirusTotal ──
-def query_virustotal(state: ThreatHuntState) -> ThreatHuntState:
-    headers = {"x-apikey": os.getenv("VIRUSTOTAL_API_KEY")}
-    url = f"https://www.virustotal.com/api/v3/ip_addresses/{state['ip_address']}"
+def query_threat_intel(state: ThreatHuntState) -> ThreatHuntState:
+    from main import unified_threat_check
     try:
-        resp = requests.get(url, headers=headers, timeout=10).json()
-        attr = resp.get("data", {}).get("attributes", {})
-        state["findings"]["virustotal"] = {
-            "malicious_votes": attr.get("total_votes", {}).get("malicious", 0),
-            "reputation": attr.get("reputation")
+        result = unified_threat_check(state["ip_address"])
+        state["findings"]["threat_intel"] = {
+            "overall_verdict": result.get("overall_verdict"),
+            "malicious_signals": result.get("malicious_signals"),
+            "sources_checked": result.get("sources_checked"),
+            "details": result.get("details"),
         }
     except Exception as e:
-        state["findings"]["virustotal"] = {"error": str(e)}
-    state["steps_taken"].append("Queried VirusTotal")
+        state["findings"]["threat_intel"] = {"error": str(e)}
+    state["steps_taken"].append("Queried unified threat intelligence (VirusTotal, AbuseIPDB, OTX, Shodan)")
     return state
 
-# ── Step 2: Query MISP (adjust to your MISP API setup) ──
-def query_misp(state: ThreatHuntState) -> ThreatHuntState:
-    try:
-        misp_url = os.getenv("MISP_URL", "http://localhost:9004")
-        misp_key = os.getenv("MISP_API_KEY")
-        headers = {"Authorization": misp_key, "Accept": "application/json"}
-        resp = requests.post(
-            f"{misp_url}/attributes/restSearch",
-            headers=headers,
-            json={"value": state["ip_address"]},
-            timeout=10,
-            verify=False
-        )
-        data = resp.json()
-        attributes = data.get("response", {}).get("Attribute", [])
-        state["findings"]["misp"] = {"matches_found": len(attributes)}
-    except Exception as e:
-        state["findings"]["misp"] = {"error": str(e)}
-    state["steps_taken"].append("Queried MISP")
-    return state
-
-# ── Step 3: Decide — is this worth deeper investigation? (agentic decision point) ──
 def assess_and_decide(state: ThreatHuntState) -> str:
-    vt = state["findings"].get("virustotal", {})
-    malicious = vt.get("malicious_votes", 0) or 0
-    if malicious > 0:
-        state["steps_taken"].append("Decision: malicious signal found → generating report")
+    ti = state["findings"].get("threat_intel", {})
+    signals = ti.get("malicious_signals", 0) or 0
+    if signals > 0:
+        state["steps_taken"].append("Decision: malicious signal found → generating detailed report")
     else:
         state["steps_taken"].append("Decision: no strong signal → generating lightweight report")
     return "generate_report"
 
-# ── Step 4: Generate final investigation report using the AI Gateway ──
 def generate_report(state: ThreatHuntState) -> ThreatHuntState:
-    from main import call_ai  # reuse your existing AI Gateway
+    from main import call_ai
     prompt = f"""You are an autonomous Threat Hunting Agent. You investigated IP {state['ip_address']} using the following steps:
 {chr(10).join('- ' + s for s in state['steps_taken'])}
 
@@ -67,20 +47,16 @@ Findings:
 {state['findings']}
 
 Write a concise investigation report (Summary, Evidence, Verdict, Recommended Next Steps)."""
-    from main import call_ai
-    state["report"] = call_ai(prompt)
+    state["report"] = call_ai(prompt, feature="threat_hunt_agent")
     return state
 
-# ── Build the graph ──
 def build_threat_hunting_agent():
     graph = StateGraph(ThreatHuntState)
-    graph.add_node("query_virustotal", query_virustotal)
-    graph.add_node("query_misp", query_misp)
+    graph.add_node("query_threat_intel", query_threat_intel)
     graph.add_node("generate_report", generate_report)
 
-    graph.set_entry_point("query_virustotal")
-    graph.add_edge("query_virustotal", "query_misp")
-    graph.add_edge("query_misp", "generate_report")
+    graph.set_entry_point("query_threat_intel")
+    graph.add_edge("query_threat_intel", "generate_report")
     graph.add_edge("generate_report", END)
 
     return graph.compile()
@@ -96,6 +72,8 @@ def run_threat_hunt(ip_address: str):
     }
     result = threat_hunting_agent.invoke(initial_state)
     return result
+
+
 # ═══════════════════════════════════════════
 # AGENT 2: Incident Triage Agent
 # Classifies severity (Critical/High/Medium/Low) and auto-assigns
@@ -151,7 +129,7 @@ Assigned Severity: {state['severity']}
 Assigned To: {state['assigned_to']}
 
 Write a 2-3 sentence justification for this triage decision, as if logging it for an audit trail."""
-    state["reasoning"] = call_ai(prompt)
+    state["reasoning"] = call_ai(prompt, feature="triage_agent")
     return state
 
 def build_triage_agent():
@@ -181,6 +159,8 @@ def run_triage(ip_address: str):
     }
     result = triage_agent.invoke(initial_state)
     return result
+
+
 # ═══════════════════════════════════════════
 # AGENT 3: Malware Investigation Agent
 # Analyzes hashes/filenames/URLs and recommends containment
@@ -196,6 +176,7 @@ class MalwareInvestigationState(TypedDict):
 
 def query_vt_for_hash(state: MalwareInvestigationState) -> MalwareInvestigationState:
     """Agent decides what to query based on what evidence is available."""
+    import requests
     if not state.get("file_hash"):
         state["vt_findings"] = {"note": "No hash provided, skipped VirusTotal hash lookup"}
         return state
@@ -241,7 +222,7 @@ VirusTotal findings: {state['vt_findings']}
 Assessed Risk Level: {state['risk_level']}
 
 Write: 1) Brief analysis of what this artifact likely is, 2) A numbered list of concrete containment/response actions appropriate for this risk level."""
-    state["containment_recommendation"] = call_ai(prompt)
+    state["containment_recommendation"] = call_ai(prompt, feature="malware_agent")
     return state
 
 def build_malware_agent():
@@ -332,7 +313,7 @@ Suspicious findings: {state['stats']['suspicious']}
 Clean findings: {state['stats']['clean']}
 
 Write a structured report with sections: Executive Summary, Key Metrics, Notable Incidents, Trend Assessment, Recommendations. Keep it business-focused, minimal jargon."""
-    state["report"] = call_ai(prompt)
+    state["report"] = call_ai(prompt, feature="exec_report_agent")
     return state
 
 def build_exec_reporting_agent():
