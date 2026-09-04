@@ -34,28 +34,55 @@ export default function AlertsPage() {
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
-    if (!session?.accessToken) return
+  if (!session?.accessToken) return
 
-    // Load history
-    fetch(`${BASE_URL}/threat-intel/history`, {
-      headers: { Authorization: `Bearer ${session.accessToken}` },
+  const MONITORING_SOURCES = ["suricata", "zeek", "falco", "wazuh"]
+
+  function shouldShow(source: string, verdict: string) {
+    // Threat-intel: sab verdicts dikhao (clean bhi)
+    if (source === "threat-intel") return true
+    // Monitoring tools (Suricata/Zeek/Falco/Wazuh): sirf suspicious/malicious
+    if (MONITORING_SOURCES.includes(source)) {
+      return verdict === "suspicious" || verdict === "malicious"
+    }
+    // Baaki sources (jaise generic "monitoring" health warnings) — dikhao by default
+    return true
+  }
+
+  // Load history
+  fetch(`${BASE_URL}/alerts/unified`, {
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      const filtered = (data.alerts || []).filter((a: any) =>
+        shouldShow(a.source, a.severity)
+      )
+      const mapped = filtered.map((a: any) => ({
+        ip_address: a.title,
+        verdict: a.severity,
+        source: a.source,
+        signature: a.title,
+        checked_at: a.timestamp,
+      }))
+      setAlerts(mapped)
     })
-      .then((res) => res.json())
-      .then((data) => setAlerts(Array.isArray(data) ? data : []))
-      .finally(() => setLoading(false))
+    .finally(() => setLoading(false))
 
-    // Live updates over WebSocket
-    const ws = new WebSocket(`${WS_URL}?token=${session.accessToken}`)
-    ws.onopen = () => setConnected(true)
-    ws.onclose = () => setConnected(false)
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      if (data.type === "new_alert") {
+  // Live updates over WebSocket
+  const ws = new WebSocket(`${WS_URL}?token=${session.accessToken}`)
+  ws.onopen = () => setConnected(true)
+  ws.onclose = () => setConnected(false)
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    if (data.type === "new_alert") {
+      const source = data.source || "threat-intel"
+      if (shouldShow(source, data.verdict)) {
         setAlerts((prev) => [
           {
             ip_address: data.ip,
             verdict: data.verdict,
-            source: data.source || "threat-intel",
+            source,
             signature: data.signature,
             malicious_signals: data.malicious_signals,
             checked_at: data.checked_at || new Date().toISOString(),
@@ -64,9 +91,10 @@ export default function AlertsPage() {
         ])
       }
     }
-    wsRef.current = ws
-    return () => ws.close()
-  }, [session])
+  }
+  wsRef.current = ws
+  return () => ws.close()
+}, [session])
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
