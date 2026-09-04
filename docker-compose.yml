@@ -179,7 +179,7 @@ services:
     restart: unless-stopped
     privileged: true
     pid: host
-    command: ["/usr/bin/falco", "-o", "file_output.enabled=true", "-o", "file_output.filename=/var/log/falco/falco.log"]
+    command: ["/usr/bin/falco", "-o", "json_output=true", "-o", "json_include_output_property=true", "-o", "file_output.enabled=true", "-o", "file_output.filename=/var/log/falco/falco.log"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /dev:/host/dev
