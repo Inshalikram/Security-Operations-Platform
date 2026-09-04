@@ -26,6 +26,22 @@ const SOURCE_STYLES: Record<string, string> = {
   "threat-intel": "text-slate-500",
 }
 
+// ── Normalizes a raw alert (from /alerts/unified OR the WebSocket) into a
+// consistent { source, verdict } shape. Backend sends Wazuh/tool-health
+// system alerts with source="monitoring" and severity="critical"/"warning"
+// (not "malicious"/"suspicious"/"clean"), and the real tool name is buried
+// in the title ("wazuh alert"). This pulls the tool name out and maps the
+// severity so filtering + badge colors work the same as the other sources. ──
+function normalizeAlert(source: string, verdict: string, title?: string) {
+  if (source === "monitoring") {
+    const toolMatch = title?.match(/^(\w+)\s+alert$/i)
+    const resolvedSource = toolMatch ? toolMatch[1].toLowerCase() : source
+    const resolvedVerdict = verdict === "critical" ? "malicious" : "suspicious"
+    return { source: resolvedSource, verdict: resolvedVerdict }
+  }
+  return { source, verdict }
+}
+
 export default function AlertsPage() {
   const session = useSessionGuard()
   const [alerts, setAlerts] = useState<any[]>([])
@@ -34,67 +50,70 @@ export default function AlertsPage() {
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
-  if (!session?.accessToken) return
+    if (!session?.accessToken) return
 
-  const MONITORING_SOURCES = ["suricata", "zeek", "falco", "wazuh"]
+    const MONITORING_SOURCES = ["suricata", "zeek", "falco", "wazuh"]
 
-  function shouldShow(source: string, verdict: string) {
-    // Threat-intel: sab verdicts dikhao (clean bhi)
-    if (source === "threat-intel") return true
-    // Monitoring tools (Suricata/Zeek/Falco/Wazuh): sirf suspicious/malicious
-    if (MONITORING_SOURCES.includes(source)) {
-      return verdict === "suspicious" || verdict === "malicious"
+    function shouldShow(source: string, verdict: string) {
+      // Threat-intel: sab verdicts dikhao (clean bhi)
+      if (source === "threat-intel") return true
+      // Monitoring tools (Suricata/Zeek/Falco/Wazuh): sirf suspicious/malicious
+      if (MONITORING_SOURCES.includes(source)) {
+        return verdict === "suspicious" || verdict === "malicious"
+      }
+      // Baaki sources — dikhao by default
+      return true
     }
-    // Baaki sources (jaise generic "monitoring" health warnings) — dikhao by default
-    return true
-  }
 
-  // Load history
-  fetch(`${BASE_URL}/alerts/unified`, {
-    headers: { Authorization: `Bearer ${session.accessToken}` },
-  })
-    .then((res) => res.json())
-    .then((data) => {
-      const filtered = (data.alerts || []).filter((a: any) =>
-        shouldShow(a.source, a.severity)
-      )
-      const mapped = filtered.map((a: any) => ({
-        ip_address: a.title,
-        verdict: a.severity,
-        source: a.source,
-        signature: a.title,
-        checked_at: a.timestamp,
-      }))
-      setAlerts(mapped)
+    // Load history
+    fetch(`${BASE_URL}/alerts/unified`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` },
     })
-    .finally(() => setLoading(false))
+      .then((res) => res.json())
+      .then((data) => {
+        const normalized = (data.alerts || []).map((a: any) => {
+          const { source, verdict } = normalizeAlert(a.source, a.severity, a.title)
+          return { ...a, source, verdict }
+        })
+        const filtered = normalized.filter((a: any) => shouldShow(a.source, a.verdict))
+        const mapped = filtered.map((a: any) => ({
+          ip_address: a.title,
+          verdict: a.verdict,
+          source: a.source,
+          signature: a.title,
+          checked_at: a.timestamp,
+        }))
+        setAlerts(mapped)
+      })
+      .finally(() => setLoading(false))
 
-  // Live updates over WebSocket
-  const ws = new WebSocket(`${WS_URL}?token=${session.accessToken}`)
-  ws.onopen = () => setConnected(true)
-  ws.onclose = () => setConnected(false)
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    if (data.type === "new_alert") {
-      const source = data.source || "threat-intel"
-      if (shouldShow(source, data.verdict)) {
-        setAlerts((prev) => [
-          {
-            ip_address: data.ip,
-            verdict: data.verdict,
-            source,
-            signature: data.signature,
-            malicious_signals: data.malicious_signals,
-            checked_at: data.checked_at || new Date().toISOString(),
-          },
-          ...prev,
-        ])
+    // Live updates over WebSocket
+    const ws = new WebSocket(`${WS_URL}?token=${session.accessToken}`)
+    ws.onopen = () => setConnected(true)
+    ws.onclose = () => setConnected(false)
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      if (data.type === "new_alert") {
+        const rawSource = data.source || "threat-intel"
+        const { source, verdict } = normalizeAlert(rawSource, data.verdict, data.signature)
+        if (shouldShow(source, verdict)) {
+          setAlerts((prev) => [
+            {
+              ip_address: data.ip,
+              verdict,
+              source,
+              signature: data.signature,
+              malicious_signals: data.malicious_signals,
+              checked_at: data.checked_at || new Date().toISOString(),
+            },
+            ...prev,
+          ])
+        }
       }
     }
-  }
-  wsRef.current = ws
-  return () => ws.close()
-}, [session])
+    wsRef.current = ws
+    return () => ws.close()
+  }, [session])
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
