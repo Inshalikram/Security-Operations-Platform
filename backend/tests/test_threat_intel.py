@@ -2,8 +2,9 @@ import main
 
 
 class FakeResponse:
-    def __init__(self, data):
+    def __init__(self, data, status_code=200):
         self._data = data
+        self.status_code = status_code
 
     def json(self):
         return self._data
