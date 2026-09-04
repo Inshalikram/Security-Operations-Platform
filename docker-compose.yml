@@ -139,6 +139,8 @@ services:
     volumes:
       - wazuh_certs:/etc/filebeat/certs:ro
       - ./wazuh/filebeat.yml:/etc/filebeat/filebeat.yml:ro
+      - ./wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
+      - /var/log/auth.log:/var/ossec/logs/host-auth.log:ro
     depends_on:
       - wazuh-certs-generator
       - wazuh-indexer
