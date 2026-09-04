@@ -6,7 +6,7 @@ import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Shield, Loader2, Sparkles } from "lucide-react"
+import { Shield, Loader2, Sparkles, Bug, FileBarChart } from "lucide-react"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 
@@ -18,12 +18,19 @@ const ACTIONS = [
   { key: "triage", label: "Triage Agent", endpoint: (ip: string) => `/agents/triage/${ip}` },
 ]
 
+const PERIODS = ["weekly", "monthly", "quarterly"] as const
+
 export default function AIChat() {
   const session = useSessionGuard()
   const [ip, setIp] = useState("")
   const [loadingKey, setLoadingKey] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
   const [activeLabel, setActiveLabel] = useState("")
+
+  // Malware Investigation Agent inputs
+  const [hash, setHash] = useState("")
+  const [filename, setFilename] = useState("")
+  const [malwareUrl, setMalwareUrl] = useState("")
 
   async function runAction(key: string, endpointFn: (ip: string) => string, label: string) {
     if (!ip) return
@@ -32,6 +39,50 @@ export default function AIChat() {
     setResult(null)
     try {
       const res = await fetch(`${BASE_URL}${endpointFn(ip)}`, {
+        headers: { Authorization: `Bearer ${session?.accessToken}` },
+      })
+      const data = await res.json()
+      setResult(data)
+    } catch (e) {
+      setResult({ error: "Request failed. Check backend is running." })
+    } finally {
+      setLoadingKey(null)
+    }
+  }
+
+  async function runMalwareInvestigate() {
+    if (!hash && !filename && !malwareUrl) return
+    setLoadingKey("malware")
+    setActiveLabel("Malware Investigation Agent")
+    setResult(null)
+    try {
+      const res = await fetch(`${BASE_URL}/agents/malware-investigate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.accessToken}`,
+        },
+        body: JSON.stringify({
+          hash: hash || null,
+          filename: filename || null,
+          url: malwareUrl || null,
+        }),
+      })
+      const data = await res.json()
+      setResult(data)
+    } catch (e) {
+      setResult({ error: "Request failed. Check backend is running." })
+    } finally {
+      setLoadingKey(null)
+    }
+  }
+
+  async function runExecReport(period: string) {
+    setLoadingKey(`exec-${period}`)
+    setActiveLabel(`Executive Report (${period})`)
+    setResult(null)
+    try {
+      const res = await fetch(`${BASE_URL}/agents/exec-report/${period}`, {
         headers: { Authorization: `Bearer ${session?.accessToken}` },
       })
       const data = await res.json()
@@ -73,7 +124,7 @@ export default function AIChat() {
       </header>
 
       <main className="relative p-8 max-w-4xl mx-auto space-y-6">
-        {/* Input */}
+        {/* IP-based actions */}
         <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
           <CardContent className="pt-6">
             <div className="flex gap-3">
@@ -96,6 +147,73 @@ export default function AIChat() {
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                   ) : null}
                   {action.label}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Malware Investigation Agent */}
+        <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
+          <CardHeader>
+            <CardTitle className="text-base text-white flex items-center gap-2">
+              <Bug className="h-4 w-4 text-violet-400" />
+              Malware Investigation Agent
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Input
+                placeholder="File hash (optional)"
+                value={hash}
+                onChange={(e) => setHash(e.target.value)}
+                className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
+              />
+              <Input
+                placeholder="Filename (optional)"
+                value={filename}
+                onChange={(e) => setFilename(e.target.value)}
+                className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
+              />
+              <Input
+                placeholder="URL (optional)"
+                value={malwareUrl}
+                onChange={(e) => setMalwareUrl(e.target.value)}
+                className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
+              />
+            </div>
+            <Button
+              onClick={runMalwareInvestigate}
+              disabled={(!hash && !filename && !malwareUrl) || loadingKey !== null}
+              className="mt-4 bg-gradient-to-br from-violet-600 to-rose-600 hover:opacity-90 text-white"
+            >
+              {loadingKey === "malware" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Investigate
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Executive Reporting Agent */}
+        <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
+          <CardHeader>
+            <CardTitle className="text-base text-white flex items-center gap-2">
+              <FileBarChart className="h-4 w-4 text-violet-400" />
+              Executive Reporting Agent
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {PERIODS.map((period) => (
+                <Button
+                  key={period}
+                  onClick={() => runExecReport(period)}
+                  disabled={loadingKey !== null}
+                  className="bg-gradient-to-br from-violet-600 to-rose-600 hover:opacity-90 text-white capitalize"
+                >
+                  {loadingKey === `exec-${period}` ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : null}
+                  {period} Report
                 </Button>
               ))}
             </div>
