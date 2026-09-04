@@ -82,9 +82,11 @@ services:
       - thehive_data:/data
     environment:
       JVM_OPTS: "-Xms1G -Xmx1G"
+      MAILER_USER: ${MAILER_USER}
+      MAILER_PASSWORD: ${MAILER_PASSWORD}
+      MAILER_FROM: ${MAILER_FROM}
     networks:
       - sop-network
-
   # ── One-time cert generator for Wazuh Manager <-> Indexer TLS. Runs once, exits — safe to leave in compose. ──
   wazuh-certs-generator:
     image: wazuh/wazuh-certs-generator:0.0.2
