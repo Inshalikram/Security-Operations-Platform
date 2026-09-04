@@ -1008,6 +1008,21 @@ def parse_falco_events():
             continue
         db.add(FalcoEvent(rule=rule, priority=event.get("priority", "warning"), output=output, raw_event=event))
         new_events += 1
+
+        # ── Broadcast to WebSocket clients so it shows live on the Alerts page ──
+        try:
+            import asyncio as _asyncio
+            _asyncio.run(manager.broadcast({
+                "type": "new_alert",
+                "ip": None,
+                "verdict": "malicious" if event.get("priority") in ("Critical", "Emergency", "Alert") else "suspicious",
+                "source": "falco",
+                "signature": rule,
+                "checked_at": datetime.utcnow().isoformat()
+            }))
+        except Exception:
+            pass
+
     db.commit()
     db.close()
     return {"new_events_ingested": new_events}
@@ -1085,6 +1100,19 @@ async def monitoring_watchdog():
                     wazuh_ip = a.get("data", {}).get("srcip") or a.get("agent", {}).get("ip")
                     if wazuh_ip:
                         wazuh_ips_to_enrich.append(wazuh_ip)
+
+                    # ── Broadcast to WebSocket clients so it shows live on the Alerts page ──
+                    try:
+                        await manager.broadcast({
+                            "type": "new_alert",
+                            "ip": wazuh_ip,
+                            "verdict": "malicious",
+                            "source": "wazuh",
+                            "signature": rule_desc,
+                            "checked_at": datetime.utcnow().isoformat()
+                        })
+                    except Exception:
+                        pass
             db.commit()
 
             # ── Naye Wazuh alerts ke IPs khud-b-khud VirusTotal/AbuseIPDB/OTX/Shodan se check karo ──
@@ -1246,6 +1274,20 @@ def parse_suricata_alerts():
         db.add(record)
         new_alerts += 1
         SURICATA_ALERTS_INGESTED.inc()
+
+        # ── Broadcast to WebSocket clients so it shows live on the Alerts page ──
+        try:
+            import asyncio as _asyncio
+            _asyncio.run(manager.broadcast({
+                "type": "new_alert",
+                "ip": event.get("src_ip") or event.get("dest_ip"),
+                "verdict": "malicious" if (alert_data.get("severity") or 3) <= 2 else "suspicious",
+                "source": "suricata",
+                "signature": alert_data.get("signature"),
+                "checked_at": record.timestamp.isoformat()
+            }))
+        except Exception:
+            pass  # don't let broadcast failure break ingestion
 
         if event.get("src_ip"):
             ips_to_enrich.append(event.get("src_ip"))
@@ -1412,6 +1454,20 @@ def parse_zeek_notices():
             )
             db.add(record)
             new_notices += 1
+
+            # ── Broadcast to WebSocket clients so it shows live on the Alerts page ──
+            try:
+                import asyncio as _asyncio
+                _asyncio.run(manager.broadcast({
+                    "type": "new_alert",
+                    "ip": record.src_ip or record.dest_ip,
+                    "verdict": "suspicious",
+                    "source": "zeek",
+                    "signature": record.note_type,
+                    "checked_at": record.timestamp.isoformat()
+                }))
+            except Exception:
+                pass
 
             if record.src_ip:
                 ips_to_enrich.append(record.src_ip)

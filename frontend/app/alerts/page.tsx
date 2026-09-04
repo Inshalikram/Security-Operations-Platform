@@ -18,6 +18,14 @@ const VERDICT_STYLES: Record<string, string> = {
   clean: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
 }
 
+const SOURCE_STYLES: Record<string, string> = {
+  suricata: "text-cyan-400",
+  zeek: "text-violet-400",
+  falco: "text-orange-400",
+  wazuh: "text-rose-400",
+  "threat-intel": "text-slate-500",
+}
+
 export default function AlertsPage() {
   const session = useSessionGuard()
   const [alerts, setAlerts] = useState<any[]>([])
@@ -44,7 +52,14 @@ export default function AlertsPage() {
       const data = JSON.parse(event.data)
       if (data.type === "new_alert") {
         setAlerts((prev) => [
-          { ip_address: data.ip, verdict: data.verdict, malicious_signals: data.malicious_signals, checked_at: new Date().toISOString() },
+          {
+            ip_address: data.ip,
+            verdict: data.verdict,
+            source: data.source || "threat-intel",
+            signature: data.signature,
+            malicious_signals: data.malicious_signals,
+            checked_at: data.checked_at || new Date().toISOString(),
+          },
           ...prev,
         ])
       }
@@ -105,9 +120,18 @@ export default function AlertsPage() {
           <Card key={i} className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
             <CardContent className="pt-6 flex items-center justify-between">
               <div>
-                <p className="text-white font-mono text-sm">{a.ip_address || a.ip}</p>
+                <p className="text-white font-mono text-sm">
+                  {a.source && a.source !== "threat-intel" && (
+                    <span className={`text-xs uppercase mr-2 ${SOURCE_STYLES[a.source] || "text-slate-500"}`}>
+                      [{a.source}]
+                    </span>
+                  )}
+                  {a.ip_address || a.ip || "—"}
+                </p>
                 <p className="text-xs text-slate-500 mt-1">
-                  {a.malicious_signals} signal(s) · {a.checked_at ? new Date(a.checked_at).toLocaleString() : ""}
+                  {a.signature && <>{a.signature} · </>}
+                  {a.malicious_signals !== undefined && <>{a.malicious_signals} signal(s) · </>}
+                  {a.checked_at ? new Date(a.checked_at).toLocaleString() : ""}
                 </p>
               </div>
               <span className={`text-xs px-3 py-1 rounded-full border ${VERDICT_STYLES[a.verdict] || "bg-slate-500/20 text-slate-300 border-slate-500/30"}`}>
