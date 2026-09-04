@@ -1454,6 +1454,14 @@ def wazuh_agents(user=Depends(verify_token)):
 # ── Zeek notice ingestion — parses Zeek's TSV-format notice.log ──
 ZEEK_NOTICE_LOG_PATH = "/var/log/zeek/notice.log"
 
+# ── Zeek ke apne packet-capture health notices — yeh security threat nahi hain,
+# sirf Zeek ko batate hain ke woh kuch packets miss/kam traffic capture kar raha
+# hai. Inko ingest hi mat karo, warna alerts page/DB in se flood ho jata hai. ──
+IGNORED_ZEEK_NOTICE_TYPES = {
+    "CaptureLoss::Too_Much_Loss",
+    "CaptureLoss::Too_Little_Traffic",
+}
+
 def parse_zeek_notices():
     """Reads Zeek's notice.log (tab-separated with # header lines), extracts
     notable-traffic events, saves new ones to DB. Also collects the IPs seen
@@ -1488,6 +1496,10 @@ def parse_zeek_notices():
             message = row.get("msg", "-")
             src_ip = row.get("id.orig_h", "-")
             dest_ip = row.get("id.resp_h", "-")
+
+            # ── Skip noisy capture-health notices — not real security events ──
+            if note_type in IGNORED_ZEEK_NOTICE_TYPES:
+                continue
 
             already_exists = db.query(ZeekNotice).filter(
                 ZeekNotice.note_type == note_type,
