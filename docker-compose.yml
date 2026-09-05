@@ -138,7 +138,7 @@ services:
       - API_PASSWORD=WazuhApi123!
     volumes:
       - wazuh_certs:/etc/filebeat/certs:ro
-      - ./wazuh/filebeat.yml:/etc/filebeat/filebeat.yml:ro
+      - ./wazuh/filebeat.yml:/etc/filebeat/filebeat.yml
       - ./wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
       - /var/log/auth.log:/var/ossec/logs/host-auth.log:ro
     depends_on:
