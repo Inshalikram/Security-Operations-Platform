@@ -137,7 +137,7 @@ services:
       - API_USERNAME=wazuh
       - API_PASSWORD=WazuhApi123!
     volumes:
-      - ./wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
+      - wazuh_certs:/etc/filebeat/certs:ro
       - /var/log/auth.log:/var/ossec/logs/host-auth.log:ro
     depends_on:
       - wazuh-certs-generator
