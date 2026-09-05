@@ -138,7 +138,6 @@ services:
       - API_PASSWORD=WazuhApi123!
     volumes:
       - wazuh_certs:/wazuh-certs-src:ro
-      - /var/log/auth.log:/var/ossec/logs/host-auth.log:ro
     entrypoint: ["/bin/bash", "-c", "mkdir -p /etc/filebeat/certs && cp /wazuh-certs-src/* /etc/filebeat/certs/ && rm -f /etc/services.d/filebeat/run && touch /etc/services.d/filebeat/down && exec /init"]
     depends_on:
       - wazuh-certs-generator
