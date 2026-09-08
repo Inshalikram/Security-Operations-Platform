@@ -76,7 +76,10 @@ def run_threat_hunt(ip_address: str):
 
 # ═══════════════════════════════════════════
 # AGENT 2: Incident Triage Agent
-# Classifies severity (Critical/High/Medium/Low) and auto-assigns
+# Classifies severity (Critical/High/Medium/Low), auto-assigns, and — for
+# Critical/High severity — proposes a block_ip action through the governance
+# layer (Policy Engine → human approval queue). This agent never blocks an
+# IP directly; it only requests the action.
 # ═══════════════════════════════════════════
 
 class TriageState(TypedDict):
@@ -85,6 +88,7 @@ class TriageState(TypedDict):
     severity: str
     assigned_to: str
     reasoning: str
+    proposed_action: dict  # governance queue entry, if one was proposed
 
 def gather_threat_data(state: TriageState) -> TriageState:
     from main import unified_threat_check
@@ -107,8 +111,21 @@ def classify_severity(state: TriageState) -> TriageState:
         state["severity"] = "Low"
     return state
 
+# Maps triage severity to a numeric confidence for the Policy Engine.
+# triage_agent's confidence_threshold (policy_engine.py) is 0.75 —
+# only Critical/High severity clear it and get to propose block_ip.
+SEVERITY_CONFIDENCE = {
+    "Critical": 0.95,
+    "High": 0.8,
+    "Medium": 0.5,
+    "Low": 0.2,
+}
+
 def auto_assign(state: TriageState) -> TriageState:
-    """Agentic decision node — routes the incident based on severity."""
+    """Agentic decision node — routes the incident based on severity, and for
+    Critical/High verdicts, proposes a block_ip action through the governance
+    layer. The Policy Engine decides what happens next (deny, queue for human
+    approval, or auto-execute) — this agent never blocks IPs directly."""
     routing = {
         "Critical": "senior-analyst-oncall",
         "High": "analyst-team-lead",
@@ -116,6 +133,30 @@ def auto_assign(state: TriageState) -> TriageState:
         "Low": "automated-monitoring"
     }
     state["assigned_to"] = routing.get(state["severity"], "analyst-queue")
+
+    state["proposed_action"] = None
+    if state["severity"] in ("Critical", "High"):
+        from main import SessionLocal
+        from governance import request_action
+
+        db = SessionLocal()
+        try:
+            state["proposed_action"] = request_action(
+                db,
+                agent_name="triage_agent",
+                action_name="block_ip",
+                target=state["ip_address"],
+                params={"ip_address": state["ip_address"]},
+                confidence=SEVERITY_CONFIDENCE[state["severity"]],
+                reasoning=(
+                    f"Triage Agent classified {state['ip_address']} as {state['severity']} "
+                    f"severity (verdict={state['threat_data'].get('overall_verdict')}, "
+                    f"signals={state['threat_data'].get('malicious_signals')})."
+                ),
+            )
+        finally:
+            db.close()
+
     return state
 
 def generate_triage_reasoning(state: TriageState) -> TriageState:
@@ -155,7 +196,8 @@ def run_triage(ip_address: str):
         "threat_data": {},
         "severity": "",
         "assigned_to": "",
-        "reasoning": ""
+        "reasoning": "",
+        "proposed_action": None,
     }
     result = triage_agent.invoke(initial_state)
     return result
