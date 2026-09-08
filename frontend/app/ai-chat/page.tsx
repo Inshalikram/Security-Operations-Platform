@@ -6,7 +6,7 @@ import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Shield, Loader2, Sparkles, Bug, FileBarChart } from "lucide-react"
+import { Shield, Loader2, Sparkles, Bug, FileBarChart, ShieldAlert, Check, X } from "lucide-react"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 
@@ -32,17 +32,27 @@ export default function AIChat() {
   const [filename, setFilename] = useState("")
   const [malwareUrl, setMalwareUrl] = useState("")
 
+  // Governance — pending action shown inline after Triage Agent runs
+  const [pendingActionId, setPendingActionId] = useState<number | null>(null)
+  const [decisionStatus, setDecisionStatus] = useState<string | null>(null) // "executed" | "rejected" | null
+  const [decidingAction, setDecidingAction] = useState(false)
+
+  const authHeaders = { Authorization: `Bearer ${session?.accessToken}` }
+
   async function runAction(key: string, endpointFn: (ip: string) => string, label: string) {
     if (!ip) return
     setLoadingKey(key)
     setActiveLabel(label)
     setResult(null)
+    setPendingActionId(null)
+    setDecisionStatus(null)
     try {
-      const res = await fetch(`${BASE_URL}${endpointFn(ip)}`, {
-        headers: { Authorization: `Bearer ${session?.accessToken}` },
-      })
+      const res = await fetch(`${BASE_URL}${endpointFn(ip)}`, { headers: authHeaders })
       const data = await res.json()
       setResult(data)
+      if (data?.proposed_action?.status === "pending_approval") {
+        setPendingActionId(data.proposed_action.action_id)
+      }
     } catch (e) {
       setResult({ error: "Request failed. Check backend is running." })
     } finally {
@@ -55,13 +65,12 @@ export default function AIChat() {
     setLoadingKey("malware")
     setActiveLabel("Malware Investigation Agent")
     setResult(null)
+    setPendingActionId(null)
+    setDecisionStatus(null)
     try {
       const res = await fetch(`${BASE_URL}/agents/malware-investigate`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.accessToken}`,
-        },
+        headers: { "Content-Type": "application/json", ...authHeaders },
         body: JSON.stringify({
           hash: hash || null,
           filename: filename || null,
@@ -81,16 +90,51 @@ export default function AIChat() {
     setLoadingKey(`exec-${period}`)
     setActiveLabel(`Executive Report (${period})`)
     setResult(null)
+    setPendingActionId(null)
+    setDecisionStatus(null)
     try {
-      const res = await fetch(`${BASE_URL}/agents/exec-report/${period}`, {
-        headers: { Authorization: `Bearer ${session?.accessToken}` },
-      })
+      const res = await fetch(`${BASE_URL}/agents/exec-report/${period}`, { headers: authHeaders })
       const data = await res.json()
       setResult(data)
     } catch (e) {
       setResult({ error: "Request failed. Check backend is running." })
     } finally {
       setLoadingKey(null)
+    }
+  }
+
+  async function handleApproveAction() {
+    if (!pendingActionId) return
+    setDecidingAction(true)
+    try {
+      const res = await fetch(`${BASE_URL}/agents/approve/${pendingActionId}`, {
+        method: "POST",
+        headers: authHeaders,
+      })
+      const data = await res.json()
+      setDecisionStatus(data?.status || "executed")
+    } catch (e) {
+      setDecisionStatus("error")
+    } finally {
+      setDecidingAction(false)
+    }
+  }
+
+  async function handleRejectAction() {
+    if (!pendingActionId) return
+    const reason = window.prompt("Reason for rejecting this action (optional):") || ""
+    setDecidingAction(true)
+    try {
+      const res = await fetch(
+        `${BASE_URL}/agents/reject/${pendingActionId}?reason=${encodeURIComponent(reason)}`,
+        { method: "POST", headers: authHeaders }
+      )
+      const data = await res.json()
+      setDecisionStatus(data?.status || "rejected")
+    } catch (e) {
+      setDecisionStatus("error")
+    } finally {
+      setDecidingAction(false)
     }
   }
 
@@ -240,6 +284,72 @@ export default function AIChat() {
                   {JSON.stringify(result, null, 2)}
                 </pre>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Governance — appears automatically when the agent proposed a destructive action */}
+        {pendingActionId && !decisionStatus && (
+          <Card className="border-amber-500/30 bg-amber-500/[0.06] backdrop-blur-xl">
+            <CardHeader>
+              <CardTitle className="text-base text-amber-300 flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4" />
+                Action Pending Approval
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-300">
+                The Triage Agent proposed a <span className="font-medium text-amber-300">block_ip</span> action
+                on <span className="font-medium text-white">{ip}</span>. This is a destructive action and
+                requires human approval before it executes.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleApproveAction}
+                  disabled={decidingAction}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {decidingAction ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Check className="h-4 w-4 mr-2" />}
+                  Approve
+                </Button>
+                <Button
+                  onClick={handleRejectAction}
+                  disabled={decidingAction}
+                  variant="outline"
+                  className="border-rose-500/30 text-rose-300 hover:bg-rose-500/10"
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Reject
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {decisionStatus && (
+          <Card
+            className={`backdrop-blur-xl ${
+              decisionStatus === "executed"
+                ? "border-emerald-500/30 bg-emerald-500/[0.06]"
+                : decisionStatus === "rejected"
+                ? "border-rose-500/30 bg-rose-500/[0.06]"
+                : "border-white/5 bg-white/[0.03]"
+            }`}
+          >
+            <CardContent className="pt-6">
+              <p
+                className={`text-sm font-medium ${
+                  decisionStatus === "executed"
+                    ? "text-emerald-300"
+                    : decisionStatus === "rejected"
+                    ? "text-rose-300"
+                    : "text-slate-300"
+                }`}
+              >
+                {decisionStatus === "executed" && `Action approved and executed — ${ip} has been blocked.`}
+                {decisionStatus === "rejected" && `Action rejected — ${ip} was not blocked.`}
+                {decisionStatus === "error" && "Something went wrong recording your decision. Try again."}
+              </p>
             </CardContent>
           </Card>
         )}
