@@ -31,6 +31,7 @@ from cache import get_cached, set_cached
 from storage import upload_bytes, get_presigned_url
 from rag import retrieve_relevant_chunks
 from search import index_document, search_all
+from governance import request_action, approve_action, reject_action
 
 load_dotenv()
 
@@ -128,6 +129,26 @@ class KnowledgeChunk(Base):
     content = Column(String)
     embedding = Column(JSON)       # stored as list of floats
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Agent governance — audit trail + human-approval queue for destructive agent actions.
+# Every agent action request (block_ip, isolate_host, etc.) is logged here regardless of
+# outcome: denied by policy, queued pending approval, approved+executed, or rejected. ──
+class AgentAction(Base):
+    __tablename__ = "agent_actions"
+    id = Column(Integer, primary_key=True, index=True)
+    agent_name = Column(String)
+    action_name = Column(String)
+    target = Column(String)
+    params = Column(JSON, nullable=True)
+    confidence = Column(String, nullable=True)
+    status = Column(String, default="pending")  # pending, approved, rejected, executed, denied, failed
+    reasoning = Column(String, nullable=True)
+    requested_at = Column(DateTime, default=datetime.utcnow)
+    decided_by = Column(String, nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+    result = Column(JSON, nullable=True)
 
 
 Base.metadata.create_all(bind=engine)
@@ -940,7 +961,8 @@ def triage_agent_endpoint(ip_address: str, user=Depends(verify_token)):
             "ip": result["ip_address"],
             "severity": result["severity"],
             "assigned_to": result["assigned_to"],
-            "reasoning": result["reasoning"]
+            "reasoning": result["reasoning"],
+            "proposed_action": result.get("proposed_action"),
         }
     except Exception as e:
         return {"error": str(e)}
@@ -990,6 +1012,65 @@ def get_report_download_url(filename: str, user=Depends(verify_token)):
     if not url:
         return {"error": "Report not found or MinIO unavailable"}
     return {"download_url": url}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# AGENT GOVERNANCE — Policy Engine → Human Approval → Action → Audit
+#
+# No agent ever executes a destructive operation directly. Read-only/analysis
+# actions run inline; anything destructive (block_ip, isolate_host, etc.) is
+# proposed via governance.request_action(), which the Policy Engine either
+# denies outright or queues here as "pending" until a human approves it.
+# ══════════════════════════════════════════════════════════════════════════
+
+@app.get("/agents/pending-approvals")
+def list_pending_approvals(user=Depends(verify_token)):
+    db = SessionLocal()
+    pending = db.query(AgentAction).filter(AgentAction.status == "pending").order_by(AgentAction.requested_at.desc()).all()
+    db.close()
+    return [
+        {
+            "id": a.id, "agent_name": a.agent_name, "action_name": a.action_name,
+            "target": a.target, "reasoning": a.reasoning, "requested_at": a.requested_at.isoformat()
+        } for a in pending
+    ]
+
+
+# ── require_role("analyst") — only analyst-level users can approve/reject a
+# destructive action, same pattern already used by delete_asset/delete_organization. ──
+@app.post("/agents/approve/{action_id}")
+def approve_pending_action(action_id: int, user=Depends(require_role("analyst"))):
+    db = SessionLocal()
+    result = approve_action(db, action_id, approver=user.get("preferred_username", "analyst"))
+    db.close()
+    return result
+
+
+@app.post("/agents/reject/{action_id}")
+def reject_pending_action(action_id: int, reason: str = "", user=Depends(require_role("analyst"))):
+    db = SessionLocal()
+    result = reject_action(db, action_id, approver=user.get("preferred_username", "analyst"), reason=reason)
+    db.close()
+    return result
+
+
+@app.get("/agents/audit-log")
+def get_agent_audit_log(user=Depends(verify_token)):
+    db = SessionLocal()
+    records = db.query(AgentAction).order_by(AgentAction.requested_at.desc()).limit(100).all()
+    db.close()
+    return [
+        {
+            "id": a.id, "agent_name": a.agent_name, "action_name": a.action_name,
+            "target": a.target, "status": a.status, "confidence": a.confidence,
+            "reasoning": a.reasoning, "requested_at": a.requested_at.isoformat(),
+            "decided_by": a.decided_by,
+            "decided_at": a.decided_at.isoformat() if a.decided_at else None,
+            "executed_at": a.executed_at.isoformat() if a.executed_at else None,
+            "result": a.result
+        } for a in records
+    ]
+
 
 @app.websocket("/ws/alerts")
 async def websocket_alerts(websocket: WebSocket, token: str = None):
