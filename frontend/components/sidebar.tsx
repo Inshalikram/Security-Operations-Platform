@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { href: "/threat-map", label: "Threat Map" },
   { href: "/network-status", label: "Network Status" },
   { href: "/ai-chat", label: "AI Chat" },
+  { href: "/pending-approvals", label: "Pending Approvals" },
   { href: "/settings", label: "Settings" },
 ]
 
