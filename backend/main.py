@@ -572,7 +572,7 @@ def unified_threat_check(ip_address: str):
         result["details"]["virustotal"] = {"error": classify_error(e)}
         result["sources_failed"].append("virustotal")
 
-    # AbuseIPDB
+           # AbuseIPDB
     try:
         abuse_headers = {"Key": ABUSEIPDB_API_KEY, "Accept": "application/json"}
         abuse_params = {"ipAddress": ip_address, "maxAgeInDays": 90}
@@ -586,7 +586,14 @@ def unified_threat_check(ip_address: str):
             "total_reports": abuse_data.get("totalReports")
         }
         result["sources_checked"].append("abuseipdb")
-        if abuse_score and abuse_score > 20:
+        # Eval finding: a high-confidence AbuseIPDB score can independently
+        # indicate malicious activity even without VirusTotal community-vote
+        # corroboration. Weight >=90% as 2 signals (strong standalone evidence)
+        # instead of just 1, so it isn't diluted to "suspicious" when other
+        # sources stay quiet. See docs/09-rag-evaluation.md
+        if abuse_score and abuse_score >= 90:
+            result["malicious_signals"] += 2
+        elif abuse_score and abuse_score > 20:
             result["malicious_signals"] += 1
     except requests.exceptions.HTTPError as e:
         result["details"]["abuseipdb"] = {"error": classify_error(e, e.response)}
