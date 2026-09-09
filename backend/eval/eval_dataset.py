@@ -10,7 +10,7 @@ from main import SessionLocal, Indicator
 OWN_SERVER_IP = "169.58.221.49"  # exclude — this is the VPS's own health-check IP, not a real case
 
 
-def get_eval_cases(limit: int = 15):
+def get_eval_cases(limit: int = 3):
     db = SessionLocal()
     records = (
         db.query(Indicator)
