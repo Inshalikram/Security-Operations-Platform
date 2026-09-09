@@ -20,9 +20,6 @@ EVAL_PROVIDER = "ollama"   # use local Ollama — no quota/rate limits
 
 
 def judge_hallucination(explanation: str, threat_data: dict, past_incidents: list, retrieved_chunks: list, retries: int = 1) -> dict:
-    """A second, independent AI call fact-checks the explanation against ONLY
-    the data that was actually available to it — flags any claim that isn't
-    traceable back to that source data. Retries once on rate-limit/timeout/503."""
     context_text = "\n".join(
         f"- [{c.source_type}] {c.title}: {c.content[:250]}" for c in retrieved_chunks
     ) or "(no knowledge base chunks retrieved)"
@@ -98,7 +95,8 @@ IMPORTANT — grounding rules:
 - Only state facts that are explicitly present in the data above. Do not infer hosting providers, ASN ownership, or infrastructure details unless stated.
 - Do not change or override any severity/status value given above — report it as-is.
 - If a playbook is referenced, use its exact step count and content — do not paraphrase or drop steps.
-- Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second)."""
+- Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second).
+- "checked_at" timestamps in the history represent when the system queried threat intel about this IP — they do NOT represent actual network traffic, connections, or detections involving this IP. Do not describe repeated lookups as "recurring attacks" or "active connections" unless separate evidence (Suricata/Zeek/Wazuh alerts) confirms it."""
 
         explanation = call_ai(prompt, provider=EVAL_PROVIDER, feature="rag_eval_explain")
         result["verdict"] = threat_data["overall_verdict"]
