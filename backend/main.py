@@ -925,7 +925,13 @@ Past history for this IP:
 Relevant knowledge base entries (Sigma rules, MITRE ATT&CK, CVEs, playbooks):
 {knowledge_text}
 
-Using the current finding, past history, AND the knowledge base entries above, explain whether this is a recurring threat pattern, which MITRE techniques or playbooks are relevant, and what that means for prioritization."""
+Using the current finding, past history, AND the knowledge base entries above, explain whether this is a recurring threat pattern, which MITRE techniques or playbooks are relevant, and what that means for prioritization.
+
+IMPORTANT — grounding rules:
+- Only state facts that are explicitly present in the data above. Do not infer hosting providers, ASN ownership, or infrastructure details unless stated.
+- Do not change or override any severity/status value given above — report it as-is.
+- If a playbook is referenced, use its exact step count and content — do not paraphrase or drop steps.
+- Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second)."""
 
         return {
             "ip": ip_address,

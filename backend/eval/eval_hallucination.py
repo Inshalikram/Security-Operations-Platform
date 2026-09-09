@@ -14,11 +14,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # so `main` impo
 from main import unified_threat_check, call_ai, SessionLocal, KnowledgeChunk, get_similar_past_incidents
 from rag import retrieve_relevant_chunks
 
+DELAY_BETWEEN_CASES_SECONDS = 8   # avoid Gemini free-tier rate limiting
+RETRY_DELAY_SECONDS = 15
 
-def judge_hallucination(explanation: str, threat_data: dict, past_incidents: list, retrieved_chunks: list) -> dict:
+
+def judge_hallucination(explanation: str, threat_data: dict, past_incidents: list, retrieved_chunks: list, retries: int = 1) -> dict:
     """A second, independent AI call fact-checks the explanation against ONLY
     the data that was actually available to it — flags any claim that isn't
-    traceable back to that source data."""
+    traceable back to that source data. Retries once on rate-limit/timeout/503."""
     context_text = "\n".join(
         f"- [{c.source_type}] {c.title}: {c.content[:250]}" for c in retrieved_chunks
     ) or "(no knowledge base chunks retrieved)"
@@ -49,10 +52,14 @@ Respond ONLY with this exact JSON, nothing else, no markdown fences:
         cleaned = raw.strip().strip("```json").strip("```").strip()
         return json.loads(cleaned)
     except Exception as e:
-        return {"hallucinated": None, "hallucinated_claims": [], "groundedness_score": None, "notes": f"judge_error: {e}"}
+        err = str(e)
+        if retries > 0 and ("429" in err or "503" in err or "timed out" in err or "UNAVAILABLE" in err):
+            time.sleep(RETRY_DELAY_SECONDS)
+            return judge_hallucination(explanation, threat_data, past_incidents, retrieved_chunks, retries - 1)
+        return {"hallucinated": None, "hallucinated_claims": [], "groundedness_score": None, "notes": f"judge_error: {err}"}
 
 
-def run_case(case: dict) -> dict:
+def run_case(case: dict, retries: int = 1) -> dict:
     result = {"case_id": case["id"], "ip": case["ip"]}
     start = time.monotonic()
     try:
@@ -84,7 +91,13 @@ Past history for this IP:
 Relevant knowledge base entries:
 {knowledge_text}
 
-Explain whether this is a recurring threat pattern, which MITRE techniques or playbooks are relevant, and what that means for prioritization."""
+Explain whether this is a recurring threat pattern, which MITRE techniques or playbooks are relevant, and what that means for prioritization.
+
+IMPORTANT — grounding rules:
+- Only state facts that are explicitly present in the data above. Do not infer hosting providers, ASN ownership, or infrastructure details unless stated.
+- Do not change or override any severity/status value given above — report it as-is.
+- If a playbook is referenced, use its exact step count and content — do not paraphrase or drop steps.
+- Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second)."""
 
         explanation = call_ai(prompt, feature="rag_eval_explain")
         result["verdict"] = threat_data["overall_verdict"]
@@ -94,29 +107,38 @@ Explain whether this is a recurring threat pattern, which MITRE techniques or pl
         result["explanation_preview"] = explanation[:300]
         result["failed"] = False
     except Exception as e:
+        err = str(e)
+        if retries > 0 and ("429" in err or "503" in err or "timed out" in err or "UNAVAILABLE" in err):
+            time.sleep(RETRY_DELAY_SECONDS)
+            return run_case(case, retries - 1)
         result["failed"] = True
-        result["error"] = str(e)
+        result["error"] = err
 
     result["latency_seconds"] = round(time.monotonic() - start, 2)
     return result
 
 
 def run_suite():
-    results = [run_case(c) for c in EVAL_CASES]
-    succeeded = [r for r in results if not r["failed"]]
+    results = []
+    for i, case in enumerate(EVAL_CASES):
+        results.append(run_case(case))
+        if i < len(EVAL_CASES) - 1:
+            time.sleep(DELAY_BETWEEN_CASES_SECONDS)
 
-    hallucinated_cases = [r for r in succeeded if r["judge"].get("hallucinated") is True]
+    succeeded = [r for r in results if not r["failed"]]
+    judged = [r for r in succeeded if r["judge"].get("hallucinated") is not None]
+    hallucinated_cases = [r for r in judged if r["judge"]["hallucinated"] is True]
 
     summary = {
         "run_at": datetime.utcnow().isoformat(),
         "total_cases": len(results),
         "failed_cases": len(results) - len(succeeded),
+        "judged_cases": len(judged),
         "cases_with_hallucination": len(hallucinated_cases),
-        "hallucination_rate": round(len(hallucinated_cases) / len(succeeded), 3) if succeeded else None,
+        "hallucination_rate": round(len(hallucinated_cases) / len(judged), 3) if judged else None,
         "avg_groundedness_score": round(
-            sum(r["judge"]["groundedness_score"] for r in succeeded if r["judge"].get("groundedness_score") is not None)
-            / max(1, len([r for r in succeeded if r["judge"].get("groundedness_score") is not None])), 1
-        ),
+            sum(r["judge"]["groundedness_score"] for r in judged) / len(judged), 1
+        ) if judged else None,
         "verdict_accuracy": round(sum(1 for r in succeeded if r["verdict_match"]) / len(succeeded), 3) if succeeded else None,
         "avg_latency_seconds": round(sum(r["latency_seconds"] for r in results) / len(results), 2),
         "hallucinated_case_ids": [r["case_id"] for r in hallucinated_cases],
