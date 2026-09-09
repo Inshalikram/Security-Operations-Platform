@@ -244,6 +244,8 @@ services:
       - WAZUH_INDEXER_PASSWORD=SecretPassword1
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - suricata_logs:/var/log/suricata:ro
       - zeek_logs:/var/log/zeek:ro
