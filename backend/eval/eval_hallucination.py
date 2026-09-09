@@ -14,8 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # so `main` impo
 from main import unified_threat_check, call_ai, SessionLocal, KnowledgeChunk, get_similar_past_incidents
 from rag import retrieve_relevant_chunks
 
-DELAY_BETWEEN_CASES_SECONDS = 8   # avoid Gemini free-tier rate limiting
+DELAY_BETWEEN_CASES_SECONDS = 8   # avoid rate limiting
 RETRY_DELAY_SECONDS = 15
+EVAL_PROVIDER = "ollama"   # use local Ollama — no quota/rate limits
 
 
 def judge_hallucination(explanation: str, threat_data: dict, past_incidents: list, retrieved_chunks: list, retries: int = 1) -> dict:
@@ -48,7 +49,7 @@ Respond ONLY with this exact JSON, nothing else, no markdown fences:
 {{"hallucinated": true/false, "hallucinated_claims": ["claim 1", "claim 2"], "groundedness_score": <0-100>, "notes": "<one sentence>"}}"""
 
     try:
-        raw = call_ai(judge_prompt, feature="hallucination_judge")
+        raw = call_ai(judge_prompt, provider=EVAL_PROVIDER, feature="hallucination_judge")
         cleaned = raw.strip().strip("```json").strip("```").strip()
         return json.loads(cleaned)
     except Exception as e:
@@ -99,7 +100,7 @@ IMPORTANT — grounding rules:
 - If a playbook is referenced, use its exact step count and content — do not paraphrase or drop steps.
 - Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second)."""
 
-        explanation = call_ai(prompt, feature="rag_eval_explain")
+        explanation = call_ai(prompt, provider=EVAL_PROVIDER, feature="rag_eval_explain")
         result["verdict"] = threat_data["overall_verdict"]
         result["verdict_match"] = threat_data["overall_verdict"] == case["expected_verdict"]
         result["knowledge_sources_used"] = [{"type": c.source_type, "title": c.title} for c in retrieved_chunks]
@@ -131,6 +132,7 @@ def run_suite():
 
     summary = {
         "run_at": datetime.utcnow().isoformat(),
+        "provider": EVAL_PROVIDER,
         "total_cases": len(results),
         "failed_cases": len(results) - len(succeeded),
         "judged_cases": len(judged),
