@@ -1,20 +1,40 @@
-"""Real IPs pulled from the platform's own `indicators` history table —
-verdicts are already known-good ground truth (no guessing)."""
+"""Pulls a fresh sample of real IPs from the indicators table each time eval
+runs, instead of a hardcoded list — so evaluation always covers what the
+system has actually seen recently, not a frozen snapshot."""
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # so `main` imports work
 
-EVAL_CASES = [
-    {"id": "case_01", "ip": "8.213.132.151",   "expected_verdict": "malicious"},
-    {"id": "case_02", "ip": "172.217.118.4",   "expected_verdict": "suspicious"},
-    {"id": "case_03", "ip": "172.233.89.133",  "expected_verdict": "malicious"},
-    {"id": "case_04", "ip": "164.132.172.225", "expected_verdict": "suspicious"},
-    {"id": "case_05", "ip": "115.220.2.156",   "expected_verdict": "malicious"},
-    {"id": "case_06", "ip": "163.192.121.134", "expected_verdict": "suspicious"},
-    {"id": "case_07", "ip": "186.226.58.46",   "expected_verdict": "malicious"},
-    {"id": "case_08", "ip": "218.98.6.202",    "expected_verdict": "malicious"},
-    {"id": "case_09", "ip": "109.160.32.26",   "expected_verdict": "malicious"},
-    {"id": "case_10", "ip": "139.162.189.5",   "expected_verdict": "malicious"},
-    {"id": "case_11", "ip": "66.132.195.60",   "expected_verdict": "suspicious"},
-    {"id": "case_12", "ip": "170.39.225.162",  "expected_verdict": "malicious"},
-    {"id": "case_13", "ip": "223.111.161.82",  "expected_verdict": "malicious"},
-    {"id": "case_14", "ip": "5.254.8.123",     "expected_verdict": "clean"},
-    {"id": "case_15", "ip": "85.217.140.19",   "expected_verdict": "malicious"},
-]
+from main import SessionLocal, Indicator
+
+OWN_SERVER_IP = "169.58.221.49"  # exclude — this is the VPS's own health-check IP, not a real case
+
+
+def get_eval_cases(limit: int = 15):
+    db = SessionLocal()
+    records = (
+        db.query(Indicator)
+        .filter(Indicator.ip_address != OWN_SERVER_IP)
+        .order_by(Indicator.checked_at.desc())
+        .limit(limit * 4)  # oversample since we dedupe by IP below
+        .all()
+    )
+    db.close()
+
+    seen_ips = set()
+    cases = []
+    for r in records:
+        if r.ip_address in seen_ips:
+            continue
+        seen_ips.add(r.ip_address)
+        cases.append({
+            "id": f"case_{len(cases) + 1:02d}",
+            "ip": r.ip_address,
+            "expected_verdict": r.verdict,
+        })
+        if len(cases) >= limit:
+            break
+    return cases
+
+
+EVAL_CASES = get_eval_cases()
