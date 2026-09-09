@@ -931,7 +931,8 @@ IMPORTANT — grounding rules:
 - Only state facts that are explicitly present in the data above. Do not infer hosting providers, ASN ownership, or infrastructure details unless stated.
 - Do not change or override any severity/status value given above — report it as-is.
 - If a playbook is referenced, use its exact step count and content — do not paraphrase or drop steps.
-- Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second)."""
+- Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second).
+- Do not use speculative or hedging language ("may be", "could indicate", "suggests that") to imply an attack technique unless the technique is explicitly supported by the source data. If uncertain, state that the data is insufficient to determine intent."""
 
         return {
             "ip": ip_address,

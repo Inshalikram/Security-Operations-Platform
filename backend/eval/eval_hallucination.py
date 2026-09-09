@@ -96,7 +96,8 @@ IMPORTANT — grounding rules:
 - Do not change or override any severity/status value given above — report it as-is.
 - If a playbook is referenced, use its exact step count and content — do not paraphrase or drop steps.
 - Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second).
-- "checked_at" timestamps in the history represent when the system queried threat intel about this IP — they do NOT represent actual network traffic, connections, or detections involving this IP. Do not describe repeated lookups as "recurring attacks" or "active connections" unless separate evidence (Suricata/Zeek/Wazuh alerts) confirms it."""
+- "checked_at" timestamps in the history represent when the system queried threat intel about this IP — they do NOT represent actual network traffic, connections, or detections involving this IP. Do not describe repeated lookups as "recurring attacks" or "active connections" unless separate evidence (Suricata/Zeek/Wazuh alerts) confirms it.
+- Do not use speculative or hedging language ("may be", "could indicate", "suggests that") to imply an attack technique unless the technique is explicitly supported by the source data. If uncertain, state that the data is insufficient to determine intent."""
 
         explanation = call_ai(prompt, provider=EVAL_PROVIDER, feature="rag_eval_explain")
         result["verdict"] = threat_data["overall_verdict"]
