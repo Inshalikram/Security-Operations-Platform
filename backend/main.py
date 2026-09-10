@@ -1,9 +1,10 @@
 from fastapi import FastAPI, Depends, Request, HTTPException
 import os
 import ipaddress
+import logging
 import requests
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
@@ -33,11 +34,19 @@ from rag import retrieve_relevant_chunks
 from search import index_document, search_all
 from governance import request_action, approve_action, reject_action
 
+# ── Resilience — retries, exponential backoff, circuit breakers, dead-letter helper ──
+from resilience import resilient_request, build_dlq_entry
+
 load_dotenv()
+
+logger = logging.getLogger("main")
+logging.basicConfig(level=logging.INFO)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://sop_admin:changeme@127.0.0.1:5432/sop_db")
 
-engine = create_engine(DATABASE_URL)
+# ── pool_pre_ping=True: pehle se dead connection detect karke naya banata hai,
+# taake Postgres restart/network-blip ke baad bhi requests crash na hon. ──
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=1800)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -151,6 +160,18 @@ class AgentAction(Base):
     result = Column(JSON, nullable=True)
 
 
+# ── Dead-letter queue — failed external writes (TheHive case creation, etc.) land here
+# after all retries are exhausted, so nothing is silently lost and can be replayed later. ──
+class DeadLetterEvent(Base):
+    __tablename__ = "dead_letter_events"
+    id = Column(Integer, primary_key=True, index=True)
+    service = Column(String)            # "thehive", "elasticsearch", etc.
+    payload = Column(JSON)
+    error = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    retried = Column(String, default="no")   # "no" | "success" | "failed"
+
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Security Operations Platform API")
@@ -244,20 +265,16 @@ THEHIVE_URL = os.getenv("THEHIVE_URL")
 
 
 def call_ollama(prompt: str) -> str:
-    try:
-        ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-        response = requests.post(
-            f"{ollama_url}/api/generate",
-            json={"model": "llama3.2", "prompt": prompt, "stream": False},
-            timeout=240
-        )
-        response.raise_for_status()
-        data = response.json()
-        print("OLLAMA RAW RESPONSE:", data)
-        return data.get("response", "")
-    except Exception as e:
-        print("OLLAMA ERROR:", e)
-        raise
+    ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+    response = resilient_request(
+        "ollama", "POST", f"{ollama_url}/api/generate",
+        json={"model": "llama3.2", "prompt": prompt, "stream": False},
+        timeout=240, max_attempts=2, recovery_timeout=30
+    )
+    data = response.json()
+    print("OLLAMA RAW RESPONSE:", data)
+    return data.get("response", "")
+
 # ── YARA — malware pattern scanning ──
 YARA_RULES_PATH = os.path.join(os.path.dirname(__file__), "rules", "yara", "suspicious_patterns.yar")
 _yara_rules = None
@@ -320,30 +337,30 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama")
 def call_openai(prompt: str) -> str:
     headers = {"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}", "Content-Type": "application/json"}
     payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}]}
-    r = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=60)
-    r.raise_for_status()
+    r = resilient_request("openai", "POST", "https://api.openai.com/v1/chat/completions",
+                           headers=headers, json=payload, timeout=60, max_attempts=2, recovery_timeout=30)
     return r.json()["choices"][0]["message"]["content"]
 
 def call_gemini(prompt: str) -> str:
     key = os.getenv("GEMINI_API_KEY")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={key}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    r = requests.post(url, json=payload, timeout=60)
-    r.raise_for_status()
+    r = resilient_request("gemini", "POST", url, json=payload, timeout=60,
+                           max_attempts=2, recovery_timeout=30)
     return r.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 def call_deepseek(prompt: str) -> str:
     headers = {"Authorization": f"Bearer {os.getenv('DEEPSEEK_API_KEY')}", "Content-Type": "application/json"}
     payload = {"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]}
-    r = requests.post("https://api.deepseek.com/chat/completions", headers=headers, json=payload, timeout=60)
-    r.raise_for_status()
+    r = resilient_request("deepseek", "POST", "https://api.deepseek.com/chat/completions",
+                           headers=headers, json=payload, timeout=60, max_attempts=2, recovery_timeout=30)
     return r.json()["choices"][0]["message"]["content"]
 
 def call_qwen(prompt: str) -> str:
     headers = {"Authorization": f"Bearer {os.getenv('QWEN_API_KEY')}", "Content-Type": "application/json"}
     payload = {"model": "qwen-plus", "messages": [{"role": "user", "content": prompt}]}
-    r = requests.post("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", headers=headers, json=payload, timeout=60)
-    r.raise_for_status()
+    r = resilient_request("qwen", "POST", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                           headers=headers, json=payload, timeout=60, max_attempts=2, recovery_timeout=30)
     return r.json()["choices"][0]["message"]["content"]
 
 PROVIDERS = {
@@ -357,25 +374,55 @@ PROVIDERS = {
 def call_ai(prompt: str, provider: str = None, feature: str = "generic") -> str:
     """The AI Gateway required by the assignment — routes to any of the 5 providers.
     `feature` labels which AI capability triggered the call (explain_ioc, executive_summary, etc.)
-    so the Grafana 'AI requests' dashboard can break volume down per feature and per provider."""
+    so the Grafana 'AI requests' dashboard can break volume down per feature and per provider.
+
+    Graceful degradation: agar requested/default provider timeout ho ya circuit open ho,
+    baaki providers ko fallback order mein try karta hai instead of failing outright."""
     provider = (provider or AI_PROVIDER).lower()
     if provider not in PROVIDERS:
         raise ValueError(f"Unknown AI provider '{provider}'. Choose from: {list(PROVIDERS.keys())}")
-    AI_REQUESTS.labels(provider=provider, feature=feature).inc()
-    try:
-        return PROVIDERS[provider](prompt)
-    except Exception:
-        AI_REQUEST_FAILURES.labels(provider=provider, feature=feature).inc()
-        raise
+
+    fallback_order = [provider] + [p for p in PROVIDERS if p != provider]
+    last_error = None
+    for p in fallback_order:
+        AI_REQUESTS.labels(provider=p, feature=feature).inc()
+        try:
+            return PROVIDERS[p](prompt)
+        except Exception as e:
+            AI_REQUEST_FAILURES.labels(provider=p, feature=feature).inc()
+            last_error = e
+            logger.warning(f"AI provider '{p}' failed for feature '{feature}' ({e}); trying next fallback")
+            continue
+    raise RuntimeError(f"all AI providers failed for feature '{feature}', last error: {last_error}")
 
 
 @app.get("/")
 def root():
     return {"message": "SOC Platform Backend is running"}
 
+
+# ── Real health check — pings Postgres and Redis instead of just returning "healthy" blindly. ──
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    checks = {}
+
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        checks["database"] = "up"
+    except Exception as e:
+        checks["database"] = f"down: {e}"
+
+    try:
+        from cache import redis_client
+        redis_client.ping()
+        checks["redis"] = "up"
+    except Exception as e:
+        checks["redis"] = f"down: {e}"
+
+    overall = "healthy" if all(v == "up" for v in checks.values()) else "degraded"
+    return {"status": overall, "checks": checks}
 
 
 # ── THREAT INTEL SOURCES (all now Keycloak-protected) ──
@@ -385,7 +432,8 @@ def check_ip(ip_address: str, user=Depends(verify_token)):
     headers = {"x-apikey": VT_API_KEY}
     url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip_address}"
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = resilient_request("virustotal", "GET", url, headers=headers,
+                                      timeout=10, max_attempts=3, recovery_timeout=60)
         data = response.json()
         attributes = data.get("data", {}).get("attributes", {})
         return {
@@ -396,7 +444,7 @@ def check_ip(ip_address: str, user=Depends(verify_token)):
             "harmless_votes": attributes.get("total_votes", {}).get("harmless"),
             "last_analysis_stats": attributes.get("last_analysis_stats")
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return {"error": str(e)}
 
 @app.get("/threat-intel/abuseipdb/{ip_address}")
@@ -408,7 +456,8 @@ def check_ip_abuseipdb(ip_address: str, user=Depends(verify_token)):
     params = {"ipAddress": ip_address, "maxAgeInDays": 90}
     url = "https://api.abuseipdb.com/api/v2/check"
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = resilient_request("abuseipdb", "GET", url, headers=headers, params=params,
+                                      timeout=10, max_attempts=3, recovery_timeout=60)
         data = response.json().get("data", {})
         return {
             "ip": ip_address,
@@ -418,7 +467,7 @@ def check_ip_abuseipdb(ip_address: str, user=Depends(verify_token)):
             "total_reports": data.get("totalReports"),
             "is_whitelisted": data.get("isWhitelisted")
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return {"error": str(e)}
 
 @app.get("/threat-intel/otx/{ip_address}")
@@ -426,7 +475,8 @@ def check_ip_otx(ip_address: str, user=Depends(verify_token)):
     headers = {"X-OTX-API-KEY": OTX_API_KEY}
     url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{ip_address}/general"
     try:
-        response = requests.get(url, headers=headers, timeout=20)
+        response = resilient_request("otx", "GET", url, headers=headers,
+                                      timeout=20, max_attempts=3, recovery_timeout=60)
         data = response.json()
         return {
             "ip": ip_address,
@@ -435,7 +485,7 @@ def check_ip_otx(ip_address: str, user=Depends(verify_token)):
             "pulse_count": data.get("pulse_info", {}).get("count"),
             "asn": data.get("asn")
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return {"error": str(e)}
 
 @app.get("/threat-intel/urlscan/{domain}")
@@ -443,7 +493,8 @@ def check_domain_urlscan(domain: str, user=Depends(verify_token)):
     headers = {"API-Key": URLSCAN_API_KEY}
     url = f"https://urlscan.io/api/v1/search/?q=domain:{domain}"
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = resilient_request("urlscan", "GET", url, headers=headers,
+                                      timeout=10, max_attempts=3, recovery_timeout=60)
         data = response.json()
         results = data.get("results", [])
         return {
@@ -457,14 +508,15 @@ def check_domain_urlscan(domain: str, user=Depends(verify_token)):
                 } for r in results[:5]
             ]
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return {"error": str(e)}
 
 @app.get("/threat-intel/shodan/{ip_address}")
 def check_ip_shodan(ip_address: str, user=Depends(verify_token)):
     url = f"https://api.shodan.io/shodan/host/{ip_address}?key={SHODAN_API_KEY}"
     try:
-        response = requests.get(url, timeout=10)
+        response = resilient_request("shodan", "GET", url,
+                                      timeout=10, max_attempts=3, recovery_timeout=60)
         data = response.json()
         return {
             "ip": ip_address,
@@ -474,7 +526,7 @@ def check_ip_shodan(ip_address: str, user=Depends(verify_token)):
             "hostnames": data.get("hostnames"),
             "vulns": list(data.get("vulns", []))
         }
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return {"error": str(e)}
 
 API_KEYS = set(os.getenv("API_KEYS", "").split(","))
@@ -532,6 +584,8 @@ def unified_threat_check(ip_address: str):
 
     def classify_error(e, resp=None):
         """Turns a raw exception/response into a specific, useful error string."""
+        if isinstance(e, RuntimeError) and "circuit_open" in str(e):
+            return "circuit_open: service temporarily disabled after repeated failures, will retry automatically"
         if resp is not None:
             if resp.status_code == 401 or resp.status_code == 403:
                 return f"auth_error: invalid or missing API key (HTTP {resp.status_code})"
@@ -547,13 +601,12 @@ def unified_threat_check(ip_address: str):
             return "connection_error: could not reach provider"
         return f"error: {str(e)}"
 
-    # VirusTotal
+    # VirusTotal — retry + exponential backoff + circuit breaker via resilient_request
     try:
         vt_headers = {"x-apikey": VT_API_KEY}
         vt_url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip_address}"
-        vt_resp = requests.get(vt_url, headers=vt_headers, timeout=12)
-        if vt_resp.status_code != 200:
-            raise requests.exceptions.HTTPError(response=vt_resp)
+        vt_resp = resilient_request("virustotal", "GET", vt_url, headers=vt_headers,
+                                     timeout=12, max_attempts=3, recovery_timeout=60)
         vt_json = vt_resp.json()
         vt_attr = vt_json.get("data", {}).get("attributes", {})
         vt_malicious = vt_attr.get("total_votes", {}).get("malicious", 0)
@@ -566,19 +619,19 @@ def unified_threat_check(ip_address: str):
         if vt_malicious and vt_malicious > 5:
             result["malicious_signals"] += 1
     except requests.exceptions.HTTPError as e:
-        result["details"]["virustotal"] = {"error": classify_error(e, e.response)}
+        result["details"]["virustotal"] = {"error": classify_error(e, getattr(e, "response", None))}
         result["sources_failed"].append("virustotal")
     except Exception as e:
         result["details"]["virustotal"] = {"error": classify_error(e)}
         result["sources_failed"].append("virustotal")
 
-           # AbuseIPDB
+           # AbuseIPDB — retry + exponential backoff + circuit breaker via resilient_request
     try:
         abuse_headers = {"Key": ABUSEIPDB_API_KEY, "Accept": "application/json"}
         abuse_params = {"ipAddress": ip_address, "maxAgeInDays": 90}
-        abuse_resp = requests.get("https://api.abuseipdb.com/api/v2/check", headers=abuse_headers, params=abuse_params, timeout=12)
-        if abuse_resp.status_code != 200:
-            raise requests.exceptions.HTTPError(response=abuse_resp)
+        abuse_resp = resilient_request("abuseipdb", "GET", "https://api.abuseipdb.com/api/v2/check",
+                                        headers=abuse_headers, params=abuse_params,
+                                        timeout=12, max_attempts=3, recovery_timeout=60)
         abuse_data = abuse_resp.json().get("data", {})
         abuse_score = abuse_data.get("abuseConfidenceScore", 0)
         result["details"]["abuseipdb"] = {
@@ -596,19 +649,18 @@ def unified_threat_check(ip_address: str):
         elif abuse_score and abuse_score > 20:
             result["malicious_signals"] += 1
     except requests.exceptions.HTTPError as e:
-        result["details"]["abuseipdb"] = {"error": classify_error(e, e.response)}
+        result["details"]["abuseipdb"] = {"error": classify_error(e, getattr(e, "response", None))}
         result["sources_failed"].append("abuseipdb")
     except Exception as e:
         result["details"]["abuseipdb"] = {"error": classify_error(e)}
         result["sources_failed"].append("abuseipdb")
 
-    # OTX
+    # OTX — retry + exponential backoff + circuit breaker via resilient_request
     try:
         otx_headers = {"X-OTX-API-KEY": OTX_API_KEY}
         otx_url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{ip_address}/general"
-        otx_resp = requests.get(otx_url, headers=otx_headers, timeout=12)
-        if otx_resp.status_code != 200:
-            raise requests.exceptions.HTTPError(response=otx_resp)
+        otx_resp = resilient_request("otx", "GET", otx_url, headers=otx_headers,
+                                      timeout=12, max_attempts=3, recovery_timeout=60)
         otx_json = otx_resp.json()
         pulse_count = otx_json.get("pulse_info", {}).get("count", 0)
         result["details"]["otx"] = {
@@ -620,18 +672,17 @@ def unified_threat_check(ip_address: str):
         if pulse_count and pulse_count > 3:
             result["malicious_signals"] += 1
     except requests.exceptions.HTTPError as e:
-        result["details"]["otx"] = {"error": classify_error(e, e.response)}
+        result["details"]["otx"] = {"error": classify_error(e, getattr(e, "response", None))}
         result["sources_failed"].append("otx")
     except Exception as e:
         result["details"]["otx"] = {"error": classify_error(e)}
         result["sources_failed"].append("otx")
 
-    # Shodan
+    # Shodan — retry + exponential backoff + circuit breaker via resilient_request
     try:
         shodan_url = f"https://api.shodan.io/shodan/host/{ip_address}?key={SHODAN_API_KEY}"
-        shodan_resp = requests.get(shodan_url, timeout=12)
-        if shodan_resp.status_code != 200:
-            raise requests.exceptions.HTTPError(response=shodan_resp)
+        shodan_resp = resilient_request("shodan", "GET", shodan_url,
+                                         timeout=12, max_attempts=3, recovery_timeout=60)
         shodan_json = shodan_resp.json()
         vulns = list(shodan_json.get("vulns", []))
         result["details"]["shodan"] = {
@@ -642,7 +693,7 @@ def unified_threat_check(ip_address: str):
         if vulns and len(vulns) > 0:
             result["malicious_signals"] += 1
     except requests.exceptions.HTTPError as e:
-        result["details"]["shodan"] = {"error": classify_error(e, e.response)}
+        result["details"]["shodan"] = {"error": classify_error(e, getattr(e, "response", None))}
         result["sources_failed"].append("shodan")
     except Exception as e:
         result["details"]["shodan"] = {"error": classify_error(e)}
@@ -704,30 +755,37 @@ def unified_threat_check(ip_address: str):
 
     # Auto-create TheHive case if suspicious or malicious
     if result["overall_verdict"] in ["malicious", "suspicious"]:
+        case_payload = {
+            "title": f"Threat Alert: {ip_address} - {result['overall_verdict']}",
+            "description": f"Automated detection.\nVerdict: {result['overall_verdict']}\nMalicious signals: {result['malicious_signals']}\nSources checked: {', '.join(result['sources_checked'])}",
+            "severity": 3 if result["overall_verdict"] == "malicious" else 2,
+            "tlp": 2,
+            "tags": ["auto-generated", "threat-intel", result["overall_verdict"]]
+        }
+        hive_headers = {
+            "Authorization": f"Bearer {THEHIVE_API_KEY}",
+            "Content-Type": "application/json"
+        }
         try:
-            case_payload = {
-                "title": f"Threat Alert: {ip_address} - {result['overall_verdict']}",
-                "description": f"Automated detection.\nVerdict: {result['overall_verdict']}\nMalicious signals: {result['malicious_signals']}\nSources checked: {', '.join(result['sources_checked'])}",
-                "severity": 3 if result["overall_verdict"] == "malicious" else 2,
-                "tlp": 2,
-                "tags": ["auto-generated", "threat-intel", result["overall_verdict"]]
-            }
-            hive_headers = {
-                "Authorization": f"Bearer {THEHIVE_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            hive_resp = requests.post(
-                f"{THEHIVE_URL}/api/v1/case",
-                json=case_payload,
-                headers=hive_headers,
-                timeout=30
-            )
+            hive_resp = resilient_request("thehive", "POST", f"{THEHIVE_URL}/api/v1/case",
+                                           json=case_payload, headers=hive_headers,
+                                           timeout=15, max_attempts=3, recovery_timeout=45)
             result["thehive_case"] = hive_resp.json() if hive_resp.status_code < 300 else {"error": hive_resp.text}
             # ── Track incident creation rate ──
             if hive_resp.status_code < 300:
                 INCIDENTS_CREATED.inc()
         except Exception as e:
-            result["thehive_case"] = {"error": str(e)}
+            # TheHive down/retries exhausted — case ko drop mat karo, dead-letter mein daal do
+            # taake baad mein /admin/dlq/{id}/retry se replay ho sake, aur verdict phir bhi user ko mile.
+            try:
+                dlq_db = SessionLocal()
+                entry = build_dlq_entry("thehive", case_payload, str(e))
+                dlq_db.add(DeadLetterEvent(service="thehive", payload=entry["payload"], error=entry["error"]))
+                dlq_db.commit()
+                dlq_db.close()
+            except Exception:
+                pass  # even DLQ write fail ho to bhi response block na ho
+            result["thehive_case"] = {"error": str(e), "queued_for_retry": True}
 
     # ── Cache only if at least one source succeeded — don't cache a total-failure result,
     # so a retry a minute later can succeed once the outage clears. ──
@@ -761,6 +819,51 @@ def get_history(user=Depends(verify_token)):
             "checked_at": r.checked_at.isoformat()
         } for r in records
     ]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# DEAD-LETTER QUEUE — view and replay failed external writes (TheHive, etc.)
+# ══════════════════════════════════════════════════════════════════════════
+
+@app.get("/admin/dlq")
+def list_dead_letter_events(user=Depends(require_role("analyst"))):
+    db = SessionLocal()
+    events = db.query(DeadLetterEvent).filter(
+        DeadLetterEvent.retried != "success"
+    ).order_by(DeadLetterEvent.created_at.desc()).limit(50).all()
+    db.close()
+    return [
+        {
+            "id": e.id, "service": e.service, "payload": e.payload, "error": e.error,
+            "created_at": e.created_at.isoformat(), "retried": e.retried
+        } for e in events
+    ]
+
+
+@app.post("/admin/dlq/{event_id}/retry")
+def retry_dead_letter_event(event_id: int, user=Depends(require_role("analyst"))):
+    db = SessionLocal()
+    event = db.query(DeadLetterEvent).filter(DeadLetterEvent.id == event_id).first()
+    if not event:
+        db.close()
+        return {"error": "not found"}
+    try:
+        if event.service == "thehive":
+            hive_headers = {"Authorization": f"Bearer {THEHIVE_API_KEY}", "Content-Type": "application/json"}
+            resp = resilient_request("thehive", "POST", f"{THEHIVE_URL}/api/v1/case",
+                                      json=event.payload, headers=hive_headers,
+                                      timeout=15, max_attempts=2, recovery_timeout=45)
+            event.retried = "success" if resp.status_code < 300 else "failed"
+        else:
+            event.retried = "failed"
+        db.commit()
+        result = {"id": event.id, "service": event.service, "retried": event.retried}
+    except Exception as e:
+        event.retried = "failed"
+        db.commit()
+        result = {"id": event.id, "service": event.service, "retried": "failed", "error": str(e)}
+    db.close()
+    return result
 
 
 # ── RAG helper — pulls this IP's own history from Postgres to give the AI memory ──
@@ -1208,20 +1311,21 @@ WAZUH_INDEXER_PASSWORD = os.getenv("WAZUH_INDEXER_PASSWORD", "SecretPassword1")
 
 def fetch_wazuh_alerts():
     """Queries real Wazuh alerts directly from the Wazuh Indexer (OpenSearch) —
-    the Manager API's /alerts endpoint doesn't exist; alerts live in the indexer."""
+    the Manager API's /alerts endpoint doesn't exist; alerts live in the indexer.
+    Retry + circuit breaker via resilient_request — agar indexer down/circuit-open ho
+    to empty list return karta hai instead of crashing the watchdog loop (graceful degradation)."""
     try:
-        resp = requests.get(
+        resp = resilient_request(
+            "wazuh_indexer", "GET",
             f"{WAZUH_INDEXER_URL}/wazuh-alerts-*/_search",
             auth=(WAZUH_INDEXER_USER, WAZUH_INDEXER_PASSWORD),
-            verify=False,
-            timeout=10,
+            verify=False, timeout=10, max_attempts=3, recovery_timeout=45,
             json={"size": 20, "sort": [{"@timestamp": {"order": "desc"}}]}
         )
-        resp.raise_for_status()
         hits = resp.json().get("hits", {}).get("hits", [])
         return [h["_source"] for h in hits]
     except Exception as e:
-        print("Wazuh indexer fetch error:", e)
+        print("Wazuh indexer fetch error (circuit likely tripped):", e)
         return []
 
 
@@ -1318,8 +1422,9 @@ def monitoring_status(user=Depends(verify_token)):
     try:
         token = get_wazuh_token()
         headers = {"Authorization": f"Bearer {token}"}
-        resp = requests.get(f"{WAZUH_API_URL}/manager/status", headers=headers, verify=False, timeout=10)
-        resp.raise_for_status()
+        resp = resilient_request("wazuh_manager", "GET", f"{WAZUH_API_URL}/manager/status",
+                                  headers=headers, verify=False, timeout=10,
+                                  max_attempts=3, recovery_timeout=45)
         procs = resp.json().get("data", {}).get("affected_items", [{}])[0]
         running = sum(1 for v in procs.values() if v == "running")
         status["wazuh"] = {"label": "Wazuh SIEM/XDR", "monitors": "Host detection & file integrity", "healthy": running > 0, "core_processes_running": running}
@@ -1495,14 +1600,13 @@ WAZUH_API_USER = os.getenv("WAZUH_API_USER", "wazuh")
 WAZUH_API_PASSWORD = os.getenv("WAZUH_API_PASSWORD", "wazuh")
 
 def get_wazuh_token():
-    """Authenticates against Wazuh's API and returns a JWT token."""
-    resp = requests.post(
-        f"{WAZUH_API_URL}/security/user/authenticate",
+    """Authenticates against Wazuh's API and returns a JWT token.
+    Retry + circuit breaker via resilient_request."""
+    resp = resilient_request(
+        "wazuh_auth", "POST", f"{WAZUH_API_URL}/security/user/authenticate",
         auth=(WAZUH_API_USER, WAZUH_API_PASSWORD),
-        verify=False,
-        timeout=10
+        verify=False, timeout=10, max_attempts=3, recovery_timeout=45
     )
-    resp.raise_for_status()
     return resp.json()["data"]["token"]
 
 
@@ -1513,8 +1617,9 @@ def check_wazuh_healthy() -> bool:
     try:
         token = get_wazuh_token()
         headers = {"Authorization": f"Bearer {token}"}
-        resp = requests.get(f"{WAZUH_API_URL}/manager/status", headers=headers, verify=False, timeout=10)
-        resp.raise_for_status()
+        resp = resilient_request("wazuh_manager", "GET", f"{WAZUH_API_URL}/manager/status",
+                                  headers=headers, verify=False, timeout=10,
+                                  max_attempts=3, recovery_timeout=45)
         procs = resp.json().get("data", {}).get("affected_items", [{}])[0]
         return sum(1 for v in procs.values() if v == "running") > 0
     except Exception:
@@ -1527,8 +1632,9 @@ def wazuh_status(user=Depends(verify_token)):
     try:
         token = get_wazuh_token()
         headers = {"Authorization": f"Bearer {token}"}
-        resp = requests.get(f"{WAZUH_API_URL}/manager/status", headers=headers, verify=False, timeout=10)
-        resp.raise_for_status()
+        resp = resilient_request("wazuh_manager", "GET", f"{WAZUH_API_URL}/manager/status",
+                                  headers=headers, verify=False, timeout=10,
+                                  max_attempts=3, recovery_timeout=45)
         return resp.json()
     except Exception as e:
         return {"error": str(e)}
@@ -1540,8 +1646,9 @@ def wazuh_agents(user=Depends(verify_token)):
     try:
         token = get_wazuh_token()
         headers = {"Authorization": f"Bearer {token}"}
-        resp = requests.get(f"{WAZUH_API_URL}/agents", headers=headers, verify=False, timeout=10)
-        resp.raise_for_status()
+        resp = resilient_request("wazuh_manager", "GET", f"{WAZUH_API_URL}/agents",
+                                  headers=headers, verify=False, timeout=10,
+                                  max_attempts=3, recovery_timeout=45)
         return resp.json()
     except Exception as e:
         return {"error": str(e)}
@@ -1699,8 +1806,9 @@ def list_cases(user=Depends(verify_token)):
                 {"_name": "sort", "_fields": [{"_createdAt": "desc"}]}
             ]
         }
-        resp = requests.post(f"{THEHIVE_URL}/api/v1/query", json=query_payload, headers=headers, timeout=10)
-        resp.raise_for_status()
+        resp = resilient_request("thehive", "POST", f"{THEHIVE_URL}/api/v1/query",
+                                  json=query_payload, headers=headers, timeout=10,
+                                  max_attempts=3, recovery_timeout=45)
         cases = resp.json()
         return {
             "count": len(cases),
@@ -1731,8 +1839,8 @@ def get_case_detail(case_id: str, user=Depends(verify_token)):
             "Authorization": f"Bearer {THEHIVE_API_KEY}",
             "Content-Type": "application/json"
         }
-        resp = requests.get(f"{THEHIVE_URL}/api/v1/case/{case_id}", headers=headers, timeout=10)
-        resp.raise_for_status()
+        resp = resilient_request("thehive", "GET", f"{THEHIVE_URL}/api/v1/case/{case_id}",
+                                  headers=headers, timeout=10, max_attempts=3, recovery_timeout=45)
         return resp.json()
     except Exception as e:
         return {"error": str(e)}
