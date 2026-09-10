@@ -50,12 +50,17 @@ def resilient_request(service_name, method, url, max_attempts=3, timeout=10,
     if not breaker.allow_request():
         raise RuntimeError(f"{service_name}_circuit_open: too many recent failures, skipping call")
 
+    # requests.request() ki jagah requests.get/requests.post use karo — tests
+    # unittest.mock.patch("requests.get") / patch("main.requests.get") karte hain,
+    # aur wo sirf requests.get ko intercept karta hai, requests.request() ko nahi.
+    request_fn = getattr(requests, method.lower())
+
     attempt = 0
     last_exc = None
     while attempt < max_attempts:
         attempt += 1
         try:
-            resp = requests.request(method, url, timeout=timeout, **kwargs)
+            resp = request_fn(url, timeout=timeout, **kwargs)
             if resp.status_code >= 500:
                 raise requests.exceptions.HTTPError(f"{service_name} returned {resp.status_code}", response=resp)
             breaker.record_success()
@@ -71,7 +76,6 @@ def resilient_request(service_name, method, url, max_attempts=3, timeout=10,
             logger.warning(f"{service_name} attempt {attempt} failed ({e}), retrying in {delay}s")
             time.sleep(delay)
     raise last_exc
-
 
 def build_dlq_entry(service: str, payload: dict, error: str) -> dict:
     return {
