@@ -1,22 +1,99 @@
 """Runs /ai/rag-explain/{ip} for each IP in EVAL_CASES, then uses a SEPARATE
 AI call ("judge") to check whether the generated explanation only makes claims
 traceable to the actual threat data + retrieved knowledge chunks — i.e. checks
-for hallucination. Run: python eval/eval_hallucination.py"""
+for hallucination. Also tracks token usage, estimated cost, and a heuristic
+citation-accuracy check. Run: python eval/eval_hallucination.py"""
 
 import json
+import re
 import time
+import os
 from datetime import datetime
 from eval_dataset import EVAL_CASES
 
-import sys, os
+import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))  # so `main` imports work
 
 from main import unified_threat_check, call_ai, SessionLocal, KnowledgeChunk, get_similar_past_incidents
 from rag import retrieve_relevant_chunks
+import requests
 
 DELAY_BETWEEN_CASES_SECONDS = 8   # avoid rate limiting
 RETRY_DELAY_SECONDS = 15
 EVAL_PROVIDER = "ollama"   # use local Ollama — no quota/rate limits
+
+# ── Rough cost table ($ per 1K tokens). Ollama is local/free; other providers
+# have placeholder rates for when EVAL_PROVIDER is switched away from Ollama. ──
+COST_PER_1K_TOKENS = {
+    "ollama": (0.0, 0.0),
+    "openai": (0.00015, 0.0006),
+    "gemini": (0.0, 0.0),
+    "deepseek": (0.0, 0.0),
+    "qwen": (0.0, 0.0),
+}
+
+
+def estimate_cost(provider: str, prompt_tokens, completion_tokens):
+    if prompt_tokens is None or completion_tokens is None:
+        return None
+    in_rate, out_rate = COST_PER_1K_TOKENS.get(provider, (0.0, 0.0))
+    return round((prompt_tokens / 1000) * in_rate + (completion_tokens / 1000) * out_rate, 6)
+
+
+def call_ollama_with_stats(prompt: str, retries: int = 1):
+    """Calls Ollama directly (bypassing main.call_ai) so token counts from the
+    raw response can be captured for the token-usage/cost metrics."""
+    try:
+        ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
+        resp = requests.post(
+            f"{ollama_url}/api/generate",
+            json={"model": "llama3.2", "prompt": prompt, "stream": False},
+            timeout=400
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "text": data.get("response", ""),
+            "prompt_tokens": data.get("prompt_eval_count"),
+            "completion_tokens": data.get("eval_count"),
+        }
+    except Exception as e:
+        err = str(e)
+        if retries > 0 and ("429" in err or "503" in err or "timed out" in err
+                             or "UNAVAILABLE" in err or "Connection aborted" in err
+                             or "RemoteDisconnected" in err):
+            time.sleep(RETRY_DELAY_SECONDS)
+            return call_ollama_with_stats(prompt, retries - 1)
+        raise
+
+
+def call_with_stats(prompt: str, feature: str):
+    """Routes to Ollama-with-stats when EVAL_PROVIDER is ollama (so we get
+    token counts); otherwise falls back to the plain call_ai (no token stats)."""
+    if EVAL_PROVIDER == "ollama":
+        result = call_ollama_with_stats(prompt)
+        return result["text"], result["prompt_tokens"], result["completion_tokens"]
+    else:
+        text = call_ai(prompt, provider=EVAL_PROVIDER, feature=feature)
+        return text, None, None
+
+
+def check_citation_accuracy(explanation: str, retrieved_chunks: list) -> dict:
+    """Heuristic check: extracts bracket-style source tags like [mitre],
+    [playbook], [sigma_rule], [cve], [doc] from the explanation and verifies
+    each cited source_type was actually among the retrieved chunks passed to
+    the model. A citation to a source type that wasn't retrieved at all is a
+    form of citation hallucination."""
+    cited_tags = {t.lower() for t in re.findall(
+        r"\[(mitre|playbook|sigma_rule|cve|doc)\]", explanation, re.IGNORECASE)}
+    available_tags = {c.source_type.lower() for c in retrieved_chunks}
+    invalid_citations = sorted(cited_tags - available_tags)
+    return {
+        "cited_source_types": sorted(cited_tags),
+        "available_source_types": sorted(available_tags),
+        "invalid_citations": invalid_citations,
+        "citation_accurate": len(invalid_citations) == 0,
+    }
 
 
 def judge_hallucination(explanation: str, threat_data: dict, past_incidents: list, retrieved_chunks: list, retries: int = 1) -> dict:
@@ -46,15 +123,19 @@ Respond ONLY with this exact JSON, nothing else, no markdown fences:
 {{"hallucinated": true/false, "hallucinated_claims": ["claim 1", "claim 2"], "groundedness_score": <0-100>, "notes": "<one sentence>"}}"""
 
     try:
-        raw = call_ai(judge_prompt, provider=EVAL_PROVIDER, feature="hallucination_judge")
+        raw, p_tok, c_tok = call_with_stats(judge_prompt, feature="hallucination_judge")
         cleaned = raw.strip().strip("```json").strip("```").strip()
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
+        parsed["_judge_prompt_tokens"] = p_tok
+        parsed["_judge_completion_tokens"] = c_tok
+        return parsed
     except Exception as e:
         err = str(e)
         if retries > 0 and ("429" in err or "503" in err or "timed out" in err or "UNAVAILABLE" in err):
             time.sleep(RETRY_DELAY_SECONDS)
             return judge_hallucination(explanation, threat_data, past_incidents, retrieved_chunks, retries - 1)
-        return {"hallucinated": None, "hallucinated_claims": [], "groundedness_score": None, "notes": f"judge_error: {err}"}
+        return {"hallucinated": None, "hallucinated_claims": [], "groundedness_score": None,
+                "notes": f"judge_error: {err}", "_judge_prompt_tokens": None, "_judge_completion_tokens": None}
 
 
 def run_case(case: dict, retries: int = 1) -> dict:
@@ -100,16 +181,37 @@ IMPORTANT — grounding rules:
 - Do not use speculative or hedging language ("may be", "could indicate", "suggests that") to imply an attack technique unless the technique is explicitly supported by the source data. If uncertain, state that the data is insufficient to determine intent.
 - A history of "clean" verdicts, or being checked multiple times, is NOT evidence of scanning, probing, or suspicious monitoring. Repeated clean/benign findings should be described as reassuring (no threat pattern), never reframed as suspicious activity or a reason for concern."""
 
-        explanation = call_ai(prompt, provider=EVAL_PROVIDER, feature="rag_eval_explain")
+        explanation, exp_prompt_tok, exp_completion_tok = call_with_stats(prompt, feature="rag_eval_explain")
+
         result["verdict"] = threat_data["overall_verdict"]
         result["verdict_match"] = threat_data["overall_verdict"] == case["expected_verdict"]
         result["knowledge_sources_used"] = [{"type": c.source_type, "title": c.title} for c in retrieved_chunks]
-        result["judge"] = judge_hallucination(explanation, threat_data, past_incidents, retrieved_chunks)
+        result["citation_check"] = check_citation_accuracy(explanation, retrieved_chunks)
+
+        judge = judge_hallucination(explanation, threat_data, past_incidents, retrieved_chunks)
+        judge_prompt_tok = judge.pop("_judge_prompt_tokens", None)
+        judge_completion_tok = judge.pop("_judge_completion_tokens", None)
+        result["judge"] = judge
+
+        total_prompt_tok = (exp_prompt_tok or 0) + (judge_prompt_tok or 0)
+        total_completion_tok = (exp_completion_tok or 0) + (judge_completion_tok or 0)
+        has_stats = exp_prompt_tok is not None or judge_prompt_tok is not None
+        result["token_usage"] = {
+            "explanation_prompt_tokens": exp_prompt_tok,
+            "explanation_completion_tokens": exp_completion_tok,
+            "judge_prompt_tokens": judge_prompt_tok,
+            "judge_completion_tokens": judge_completion_tok,
+            "total_prompt_tokens": total_prompt_tok if has_stats else None,
+            "total_completion_tokens": total_completion_tok if has_stats else None,
+            "estimated_cost_usd": estimate_cost(EVAL_PROVIDER, total_prompt_tok, total_completion_tok) if has_stats else None,
+        }
+
         result["explanation_preview"] = explanation[:300]
         result["failed"] = False
     except Exception as e:
         err = str(e)
-        if retries > 0 and ("429" in err or "503" in err or "timed out" in err or "UNAVAILABLE" in err):
+        if retries > 0 and ("429" in err or "503" in err or "timed out" in err or "UNAVAILABLE" in err
+                             or "Connection aborted" in err or "RemoteDisconnected" in err):
             time.sleep(RETRY_DELAY_SECONDS)
             return run_case(case, retries - 1)
         result["failed"] = True
@@ -129,6 +231,9 @@ def run_suite():
     succeeded = [r for r in results if not r["failed"]]
     judged = [r for r in succeeded if r["judge"].get("hallucinated") is not None]
     hallucinated_cases = [r for r in judged if r["judge"]["hallucinated"] is True]
+    citation_checked = [r for r in succeeded if r.get("citation_check")]
+    citation_accurate_cases = [r for r in citation_checked if r["citation_check"]["citation_accurate"]]
+    cost_tracked = [r for r in succeeded if r.get("token_usage", {}).get("estimated_cost_usd") is not None]
 
     summary = {
         "run_at": datetime.utcnow().isoformat(),
@@ -142,7 +247,15 @@ def run_suite():
             sum(r["judge"]["groundedness_score"] for r in judged) / len(judged), 1
         ) if judged else None,
         "verdict_accuracy": round(sum(1 for r in succeeded if r["verdict_match"]) / len(succeeded), 3) if succeeded else None,
+        "citation_accuracy_rate": round(len(citation_accurate_cases) / len(citation_checked), 3) if citation_checked else None,
         "avg_latency_seconds": round(sum(r["latency_seconds"] for r in results) / len(results), 2),
+        "avg_prompt_tokens_per_case": round(
+            sum(r["token_usage"]["total_prompt_tokens"] for r in cost_tracked if r["token_usage"]["total_prompt_tokens"]) / len(cost_tracked), 1
+        ) if cost_tracked else None,
+        "avg_completion_tokens_per_case": round(
+            sum(r["token_usage"]["total_completion_tokens"] for r in cost_tracked if r["token_usage"]["total_completion_tokens"]) / len(cost_tracked), 1
+        ) if cost_tracked else None,
+        "total_estimated_cost_usd": round(sum(r["token_usage"]["estimated_cost_usd"] for r in cost_tracked), 6) if cost_tracked else None,
         "hallucinated_case_ids": [r["case_id"] for r in hallucinated_cases],
     }
 
