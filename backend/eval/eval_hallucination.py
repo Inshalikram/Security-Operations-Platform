@@ -97,7 +97,8 @@ IMPORTANT — grounding rules:
 - If a playbook is referenced, use its exact step count and content — do not paraphrase or drop steps.
 - Count each history entry and the current finding as distinct events only if their timestamps are meaningfully different (not the same second).
 - "checked_at" timestamps in the history represent when the system queried threat intel about this IP — they do NOT represent actual network traffic, connections, or detections involving this IP. Do not describe repeated lookups as "recurring attacks" or "active connections" unless separate evidence (Suricata/Zeek/Wazuh alerts) confirms it.
-- Do not use speculative or hedging language ("may be", "could indicate", "suggests that") to imply an attack technique unless the technique is explicitly supported by the source data. If uncertain, state that the data is insufficient to determine intent."""
+- Do not use speculative or hedging language ("may be", "could indicate", "suggests that") to imply an attack technique unless the technique is explicitly supported by the source data. If uncertain, state that the data is insufficient to determine intent.
+- A history of "clean" verdicts, or being checked multiple times, is NOT evidence of scanning, probing, or suspicious monitoring. Repeated clean/benign findings should be described as reassuring (no threat pattern), never reframed as suspicious activity or a reason for concern."""
 
         explanation = call_ai(prompt, provider=EVAL_PROVIDER, feature="rag_eval_explain")
         result["verdict"] = threat_data["overall_verdict"]
