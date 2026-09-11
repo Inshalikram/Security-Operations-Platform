@@ -15,6 +15,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - sop-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sop_admin -d sop_db"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -22,6 +27,11 @@ services:
     restart: unless-stopped
     networks:
       - sop-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   minio:
     image: minio/minio:latest
@@ -72,6 +82,12 @@ services:
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     networks:
       - sop-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   thehive:
     image: strangebee/thehive:5.4
@@ -89,6 +105,12 @@ services:
       MAILER_FROM: ${MAILER_FROM}
     networks:
       - sop-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9000/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
   # ── One-time cert generator for Wazuh Manager <-> Indexer TLS. Runs once, exits — safe to leave in compose. ──
   wazuh-certs-generator:
     image: wazuh/wazuh-certs-generator:0.0.2
@@ -144,6 +166,12 @@ services:
     depends_on:
       - wazuh-certs-generator
       - wazuh-indexer
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost:55000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks:
       sop-network:
         aliases:
@@ -254,6 +282,12 @@ services:
       - postgres
       - wazuh-indexer
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests,sys; sys.exit(0 if requests.get('http://localhost:8000/health', timeout=3).status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - sop-network
     labels:
@@ -276,6 +310,12 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     networks:
       - sop-network
     labels:
