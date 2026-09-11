@@ -33,6 +33,12 @@ from storage import upload_bytes, get_presigned_url
 from rag import retrieve_relevant_chunks
 from search import index_document, search_all
 from governance import request_action, approve_action, reject_action
+from tenancy import (
+    get_current_tenant,
+    get_tenant_scoped_db,
+    TenantScopedSession,
+    check_resource_access,
+)
 
 # ── Resilience — retries, exponential backoff, circuit breakers, dead-letter helper ──
 from resilience import resilient_request, build_dlq_entry
@@ -53,6 +59,7 @@ Base = declarative_base()
 class Indicator(Base):
     __tablename__ = "indicators"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     ip_address = Column(String, index=True)
     verdict = Column(String)
     malicious_signals = Column(Integer)
@@ -66,6 +73,7 @@ class Indicator(Base):
 class Asset(Base):
     __tablename__ = "assets"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     name = Column(String, nullable=False)
     ip_address = Column(String, index=True)
     asset_type = Column(String)          # server, workstation, network-device, etc.
@@ -79,6 +87,7 @@ class Asset(Base):
 class Organization(Base):
     __tablename__ = "organizations"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     name = Column(String, nullable=False, unique=True)
     description = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -88,6 +97,7 @@ class Organization(Base):
 class SuricataAlert(Base):
     __tablename__ = "suricata_alerts"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     src_ip = Column(String)
     dest_ip = Column(String)
@@ -100,6 +110,7 @@ class SuricataAlert(Base):
 class ZeekNotice(Base):
     __tablename__ = "zeek_notices"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     note_type = Column(String)
     message = Column(String)
@@ -112,6 +123,7 @@ class ZeekNotice(Base):
 class FalcoEvent(Base):
     __tablename__ = "falco_events"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     rule = Column(String)
     priority = Column(String)
@@ -123,6 +135,7 @@ class FalcoEvent(Base):
 class SystemAlert(Base):
     __tablename__ = "system_alerts"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     tool = Column(String)
     message = Column(String)
@@ -133,6 +146,7 @@ class SystemAlert(Base):
 class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunks"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     source_type = Column(String)   # sigma_rule, mitre, cve, playbook, doc
     title = Column(String)
     content = Column(String)
@@ -146,6 +160,7 @@ class KnowledgeChunk(Base):
 class AgentAction(Base):
     __tablename__ = "agent_actions"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     agent_name = Column(String)
     action_name = Column(String)
     target = Column(String)
@@ -164,6 +179,7 @@ class AgentAction(Base):
 class PendingApproval(Base):
     __tablename__ = "pending_approvals"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     agent_name = Column(String, nullable=False)
     action_name = Column(String, nullable=False)
     target = Column(String, nullable=True)
@@ -183,6 +199,7 @@ class PendingApproval(Base):
 class AgentAuditLog(Base):
     __tablename__ = "agent_audit_log"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     agent_name = Column(String, nullable=False)
     tool_name = Column(String, nullable=False)
     tool_input = Column(JSON, nullable=True)
@@ -200,6 +217,7 @@ class AgentAuditLog(Base):
 class DeadLetterEvent(Base):
     __tablename__ = "dead_letter_events"
     id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
     service = Column(String)            # "thehive", "elasticsearch", etc.
     payload = Column(JSON)
     error = Column(String)
@@ -207,7 +225,73 @@ class DeadLetterEvent(Base):
     retried = Column(String, default="no")   # "no" | "success" | "failed"
 
 
+# ── Incidents table (multi-tenant incident management) ──
+class Incident(Base):
+    __tablename__ = "incidents"
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    severity = Column(String, default="medium")
+    status = Column(String, default="open")  # open, closed, investigating
+    tags = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── Reports table (multi-tenant executive and compliance reports) ──
+class Report(Base):
+    __tablename__ = "reports"
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
+    title = Column(String, nullable=False)
+    period = Column(String, default="weekly")
+    content = Column(String, nullable=True)
+    filename = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── API Credentials table (multi-tenant third-party integration keys) ──
+class APICredential(Base):
+    __tablename__ = "api_credentials"
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
+    name = Column(String, nullable=False)
+    service = Column(String, nullable=False)  # virustotal, abuseipdb, otx, shodan, etc.
+    key_value = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── AI Conversations table (multi-tenant AI interactions and queries) ──
+class AIConversation(Base):
+    __tablename__ = "ai_conversations"
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(String, default="default", index=True)
+    user_id = Column(String, nullable=True)
+    prompt = Column(String, nullable=False)
+    response = Column(String, nullable=True)
+    feature = Column(String, default="chat")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 Base.metadata.create_all(bind=engine)
+
+# ── Ensure tenant_id column and index exist across all tables (safe schema evolution) ──
+try:
+    with engine.connect() as _conn:
+        for _tbl in (
+            "indicators", "assets", "organizations", "suricata_alerts",
+            "zeek_notices", "falco_events", "system_alerts", "knowledge_chunks",
+            "agent_actions", "pending_approvals", "agent_audit_log", "dead_letter_events",
+            "incidents", "reports", "api_credentials", "ai_conversations"
+        ):
+            try:
+                _conn.execute(text(f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS tenant_id VARCHAR DEFAULT 'default';"))
+                _conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{_tbl}_tenant_id ON {_tbl} (tenant_id);"))
+                _conn.commit()
+            except Exception:
+                pass
+except Exception:
+    pass
 
 app = FastAPI(title="Security Operations Platform API")
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
@@ -609,7 +693,7 @@ def enrich_ip_from_alert(ip_address: str, source_tool: str):
 
 # ── Internal function (NOT an endpoint) — reused by AI features, agents, and the protected endpoint below.
 # Kept auth-free here because Depends() only works on HTTP-routed functions, not direct Python calls. ──
-def unified_threat_check(ip_address: str):
+def unified_threat_check(ip_address: str, tenant_id: str = "default"):
     cached = get_cached(f"threat:{ip_address}")
     if cached:
         return cached
@@ -847,24 +931,31 @@ def unified_threat_check(ip_address: str):
 # (Keycloak timeout, DB drop, network glitch) returns a readable JSON error instead of
 # an uncaught 500 with no detail. ──
 @app.get("/threat-intel/check/{ip_address}")
-def unified_threat_check_endpoint(ip_address: str, user=Depends(verify_token)):
+def unified_threat_check_endpoint(
+    ip_address: str,
+    user=Depends(verify_token),
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+):
     try:
-        return unified_threat_check(ip_address)
+        return unified_threat_check(ip_address, tenant_id=scoped_db.tenant_id)
     except Exception as e:
         return {"error": str(e)}
 
 
 @app.get("/threat-intel/history")
-def get_history(user=Depends(verify_token)):
-    db = SessionLocal()
-    records = db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(20).all()
-    db.close()
+def get_history(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    records = scoped_db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(20).all()
     return [
         {
+            "id": r.id,
             "ip": r.ip_address,
             "verdict": r.verdict,
             "malicious_signals": r.malicious_signals,
             "sources_checked": r.sources_checked,
+            "tenant_id": r.tenant_id,
             "checked_at": r.checked_at.isoformat()
         } for r in records
     ]
@@ -916,11 +1007,12 @@ def retry_dead_letter_event(event_id: int, user=Depends(require_role("analyst"))
 
 
 # ── RAG helper — pulls this IP's own history from Postgres to give the AI memory ──
-def get_similar_past_incidents(ip_address: str, limit: int = 5):
+def get_similar_past_incidents(ip_address: str, limit: int = 5, tenant_id: str = None):
     db = SessionLocal()
-    records = db.query(Indicator).filter(
-        Indicator.ip_address == ip_address
-    ).order_by(Indicator.checked_at.desc()).limit(limit).all()
+    q = db.query(Indicator).filter(Indicator.ip_address == ip_address)
+    if tenant_id:
+        q = q.filter(Indicator.tenant_id == tenant_id)
+    records = q.order_by(Indicator.checked_at.desc()).limit(limit).all()
     db.close()
     return [
         {
@@ -1052,10 +1144,15 @@ Details: {threat_data['details']}"""
 # ── RAG endpoint — combines current finding + this IP's own history from Postgres
 # + relevant knowledge base chunks (Sigma rules, MITRE ATT&CK, CVEs, playbooks) ──
 @app.get("/ai/rag-explain/{ip_address}")
-def ai_rag_explain(ip_address: str, provider: str = None, user=Depends(verify_token)):
+def ai_rag_explain(
+    ip_address: str,
+    provider: str = None,
+    user=Depends(verify_token),
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+):
     try:
-        threat_data = unified_threat_check(ip_address)
-        past_incidents = get_similar_past_incidents(ip_address)
+        threat_data = unified_threat_check(ip_address, tenant_id=scoped_db.tenant_id)
+        past_incidents = get_similar_past_incidents(ip_address, tenant_id=scoped_db.tenant_id)
 
         history_text = "No previous history found." if not past_incidents else "\n".join(
             [f"- {p['checked_at']}: verdict={p['verdict']}, signals={p['malicious_signals']}" for p in past_incidents]
@@ -1063,9 +1160,7 @@ def ai_rag_explain(ip_address: str, provider: str = None, user=Depends(verify_to
 
         # ── Retrieve relevant knowledge chunks (Sigma rules, MITRE, CVEs, playbooks) ──
         query_text = f"IP {ip_address} verdict {threat_data['overall_verdict']} signals {threat_data['malicious_signals']}"
-        db = SessionLocal()
-        relevant_chunks = retrieve_relevant_chunks(db, KnowledgeChunk, query_text, top_k=5)
-        db.close()
+        relevant_chunks = retrieve_relevant_chunks(scoped_db, KnowledgeChunk, query_text, top_k=5)
 
         knowledge_text = "No relevant knowledge base entries found." if not relevant_chunks else "\n".join(
             [f"- [{c.source_type}] {c.title}: {c.content[:200]}" for c in relevant_chunks]
@@ -1191,28 +1286,30 @@ def get_report_download_url(filename: str, user=Depends(verify_token)):
 # ══════════════════════════════════════════════════════════════════════════
 
 @app.get("/agents/pending-approvals")
-def list_pending_approvals(user=Depends(verify_token)):
-    db = SessionLocal()
-    pending = db.query(PendingApproval).filter(PendingApproval.status == "pending").order_by(PendingApproval.requested_at.desc()).all()
+def list_pending_approvals(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    pending = scoped_db.query(PendingApproval).filter(PendingApproval.status == "pending").order_by(PendingApproval.requested_at.desc()).all()
     if not pending:
-        pending_legacy = db.query(AgentAction).filter(AgentAction.status == "pending").order_by(AgentAction.requested_at.desc()).all()
-        db.close()
+        pending_legacy = scoped_db.query(AgentAction).filter(AgentAction.status == "pending").order_by(AgentAction.requested_at.desc()).all()
         return [
             {
                 "id": a.id, "agent_name": a.agent_name, "action_name": a.action_name,
                 "target": a.target, "reasoning": a.reasoning,
                 "risk_score": 0.85,
                 "confidence": float(a.confidence) if a.confidence else 1.0,
+                "tenant_id": a.tenant_id,
                 "requested_at": a.requested_at.isoformat() if a.requested_at else None
             } for a in pending_legacy
         ]
-    db.close()
     return [
         {
             "id": a.id, "agent_name": a.agent_name, "action_name": a.action_name,
             "target": a.target, "reasoning": a.reasoning,
             "risk_score": a.risk_score,
             "confidence": a.confidence,
+            "tenant_id": a.tenant_id,
             "requested_at": a.requested_at.isoformat() if a.requested_at else None
         } for a in pending
     ]
@@ -1221,28 +1318,54 @@ def list_pending_approvals(user=Depends(verify_token)):
 # ── require_role("analyst") — only analyst-level users can approve/reject a
 # destructive action, same pattern already used by delete_asset/delete_organization. ──
 @app.post("/agents/approve/{action_id}")
-def approve_pending_action(action_id: int, user=Depends(require_role("analyst"))):
-    db = SessionLocal()
-    result = approve_action(db, action_id, approver=user.get("preferred_username", "analyst"))
-    db.close()
+def approve_pending_action(
+    action_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    # Cross-tenant access check
+    rec = scoped_db.query(PendingApproval).filter(PendingApproval.id == action_id).first()
+    if not rec:
+        leg = scoped_db.query(AgentAction).filter(AgentAction.id == action_id).first()
+        if not leg:
+            unscoped_p = scoped_db.get_unscoped(PendingApproval).filter(PendingApproval.id == action_id).first()
+            unscoped_a = scoped_db.get_unscoped(AgentAction).filter(AgentAction.id == action_id).first()
+            if unscoped_p or unscoped_a:
+                raise HTTPException(status_code=403, detail="Access denied: Action belongs to another tenant")
+            raise HTTPException(status_code=404, detail="Action not found")
+    result = approve_action(scoped_db, action_id, approver=user.get("preferred_username", "analyst"))
     return result
 
 
 @app.post("/agents/reject/{action_id}")
-def reject_pending_action(action_id: int, reason: str = "", user=Depends(require_role("analyst"))):
-    db = SessionLocal()
-    result = reject_action(db, action_id, approver=user.get("preferred_username", "analyst"), reason=reason)
-    db.close()
+def reject_pending_action(
+    action_id: int,
+    reason: str = "",
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    # Cross-tenant access check
+    rec = scoped_db.query(PendingApproval).filter(PendingApproval.id == action_id).first()
+    if not rec:
+        leg = scoped_db.query(AgentAction).filter(AgentAction.id == action_id).first()
+        if not leg:
+            unscoped_p = scoped_db.get_unscoped(PendingApproval).filter(PendingApproval.id == action_id).first()
+            unscoped_a = scoped_db.get_unscoped(AgentAction).filter(AgentAction.id == action_id).first()
+            if unscoped_p or unscoped_a:
+                raise HTTPException(status_code=403, detail="Access denied: Action belongs to another tenant")
+            raise HTTPException(status_code=404, detail="Action not found")
+    result = reject_action(scoped_db, action_id, approver=user.get("preferred_username", "analyst"), reason=reason)
     return result
 
 
 @app.get("/agents/audit-log")
-def get_agent_audit_log(user=Depends(verify_token)):
-    db = SessionLocal()
-    records = db.query(AgentAuditLog).order_by(AgentAuditLog.created_at.desc()).limit(100).all()
+def get_agent_audit_log(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    records = scoped_db.query(AgentAuditLog).order_by(AgentAuditLog.created_at.desc()).limit(100).all()
     if not records:
-        legacy = db.query(AgentAction).order_by(AgentAction.requested_at.desc()).limit(100).all()
-        db.close()
+        legacy = scoped_db.query(AgentAction).order_by(AgentAction.requested_at.desc()).limit(100).all()
         return [
             {
                 "id": a.id, "agent_name": a.agent_name, "tool_name": a.action_name,
@@ -1251,16 +1374,17 @@ def get_agent_audit_log(user=Depends(verify_token)):
                 "risk_score": 0.85 if a.status in ("pending", "executed") else 0.1,
                 "reasoning": a.reasoning, "requested_at": a.requested_at.isoformat() if a.requested_at else None,
                 "decided_by": a.decided_by, "created_at": a.requested_at.isoformat() if a.requested_at else None,
+                "tenant_id": a.tenant_id,
                 "result": a.result
             } for a in legacy
         ]
-    db.close()
     return [
         {
             "id": r.id, "agent_name": r.agent_name, "tool_name": r.tool_name,
             "action_name": r.tool_name, "tool_input": r.tool_input, "decision": r.decision,
             "status": r.decision, "risk_score": r.risk_score, "confidence": r.confidence,
             "reasoning": r.reasoning, "approver": r.approver, "decided_by": r.approver,
+            "tenant_id": r.tenant_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "requested_at": r.created_at.isoformat() if r.created_at else None,
             "result": r.result
@@ -1368,15 +1492,17 @@ def ingest_falco_events(user=Depends(verify_token)):
 
 
 @app.get("/security-monitoring/falco/events")
-def get_falco_events(user=Depends(verify_token)):
+def get_falco_events(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
     """Return the most recent Falco runtime security events stored in the platform."""
-    db = SessionLocal()
-    events = db.query(FalcoEvent).order_by(FalcoEvent.timestamp.desc()).limit(50).all()
-    db.close()
+    events = scoped_db.query(FalcoEvent).order_by(FalcoEvent.timestamp.desc()).limit(50).all()
     return [
         {
             "id": e.id, "timestamp": e.timestamp.isoformat(),
-            "rule": e.rule, "priority": e.priority, "output": e.output
+            "rule": e.rule, "priority": e.priority, "output": e.output,
+            "tenant_id": e.tenant_id
         } for e in events
     ]
 
@@ -1521,38 +1647,43 @@ def monitoring_status(user=Depends(verify_token)):
 
 
 @app.get("/alerts/unified")
-def get_unified_alerts(user=Depends(verify_token)):
-    db = SessionLocal()
+def get_unified_alerts(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
     unified = []
 
-    for i in db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(30).all():
-        unified.append({"source": "threat-intel", "title": i.ip_address, "severity": i.verdict, "detail": f"{i.malicious_signals} signal(s)", "timestamp": i.checked_at.isoformat()})
+    for i in scoped_db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(30).all():
+        unified.append({"id": i.id, "source": "threat-intel", "title": i.ip_address, "severity": i.verdict, "detail": f"{i.malicious_signals} signal(s)", "tenant_id": i.tenant_id, "timestamp": i.checked_at.isoformat()})
 
-    for s in db.query(SuricataAlert).order_by(SuricataAlert.timestamp.desc()).limit(30).all():
-        unified.append({"source": "suricata", "title": s.signature or "Suricata alert", "severity": "malicious" if (s.severity or 3) <= 2 else "suspicious", "detail": f"{s.src_ip} → {s.dest_ip}", "timestamp": s.timestamp.isoformat()})
+    for s in scoped_db.query(SuricataAlert).order_by(SuricataAlert.timestamp.desc()).limit(30).all():
+        unified.append({"id": s.id, "source": "suricata", "title": s.signature or "Suricata alert", "severity": "malicious" if (s.severity or 3) <= 2 else "suspicious", "detail": f"{s.src_ip} → {s.dest_ip}", "tenant_id": s.tenant_id, "timestamp": s.timestamp.isoformat()})
 
-    for z in db.query(ZeekNotice).order_by(ZeekNotice.timestamp.desc()).limit(30).all():
-        unified.append({"source": "zeek", "title": z.note_type or "Zeek notice", "severity": "suspicious", "detail": z.message or f"{z.src_ip} → {z.dest_ip}", "timestamp": z.timestamp.isoformat()})
+    for z in scoped_db.query(ZeekNotice).order_by(ZeekNotice.timestamp.desc()).limit(30).all():
+        unified.append({"id": z.id, "source": "zeek", "title": z.note_type or "Zeek notice", "severity": "suspicious", "detail": z.message or f"{z.src_ip} → {z.dest_ip}", "tenant_id": z.tenant_id, "timestamp": z.timestamp.isoformat()})
 
-    for fe in db.query(FalcoEvent).order_by(FalcoEvent.timestamp.desc()).limit(30).all():
+    for fe in scoped_db.query(FalcoEvent).order_by(FalcoEvent.timestamp.desc()).limit(30).all():
         unified.append({
+            "id": fe.id,
             "source": "falco",
             "title": fe.rule,
             "severity": "malicious" if fe.priority in ("Critical", "Emergency", "Alert") else "suspicious",
             "detail": fe.output,
+            "tenant_id": fe.tenant_id,
             "timestamp": fe.timestamp.isoformat()
         })
 
-    for sa in db.query(SystemAlert).order_by(SystemAlert.timestamp.desc()).limit(30).all():
+    for sa in scoped_db.query(SystemAlert).order_by(SystemAlert.timestamp.desc()).limit(30).all():
         unified.append({
+            "id": sa.id,
             "source": "monitoring",
             "title": f"{sa.tool} alert",
             "severity": sa.severity,
             "detail": sa.message,
+            "tenant_id": sa.tenant_id,
             "timestamp": sa.timestamp.isoformat()
         })
 
-    db.close()
     unified.sort(key=lambda x: x["timestamp"], reverse=True)
     return {"count": len(unified), "alerts": unified[:50]}
 
@@ -1655,11 +1786,12 @@ def ingest_suricata_alerts(user=Depends(verify_token)):
 
 
 @app.get("/security-monitoring/suricata/alerts")
-def get_suricata_alerts(user=Depends(verify_token)):
+def get_suricata_alerts(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
     """Return the most recent Suricata alerts stored in the platform."""
-    db = SessionLocal()
-    alerts = db.query(SuricataAlert).order_by(SuricataAlert.timestamp.desc()).limit(50).all()
-    db.close()
+    alerts = scoped_db.query(SuricataAlert).order_by(SuricataAlert.timestamp.desc()).limit(50).all()
     return [
         {
             "id": a.id,
@@ -1667,7 +1799,8 @@ def get_suricata_alerts(user=Depends(verify_token)):
             "src_ip": a.src_ip,
             "dest_ip": a.dest_ip,
             "signature": a.signature,
-            "severity": a.severity
+            "severity": a.severity,
+            "tenant_id": a.tenant_id
         } for a in alerts
     ]
 
@@ -1849,11 +1982,12 @@ def ingest_zeek_notices(user=Depends(verify_token)):
 
 
 @app.get("/security-monitoring/zeek/notices")
-def get_zeek_notices(user=Depends(verify_token)):
+def get_zeek_notices(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
     """Return the most recent Zeek notices stored in the platform."""
-    db = SessionLocal()
-    notices = db.query(ZeekNotice).order_by(ZeekNotice.timestamp.desc()).limit(50).all()
-    db.close()
+    notices = scoped_db.query(ZeekNotice).order_by(ZeekNotice.timestamp.desc()).limit(50).all()
     return [
         {
             "id": n.id,
@@ -1861,7 +1995,8 @@ def get_zeek_notices(user=Depends(verify_token)):
             "note_type": n.note_type,
             "message": n.message,
             "src_ip": n.src_ip,
-            "dest_ip": n.dest_ip
+            "dest_ip": n.dest_ip,
+            "tenant_id": n.tenant_id
         } for n in notices
     ]
 
@@ -1978,80 +2113,604 @@ class AssetCreate(BaseModel):
     asset_type: Optional[str] = "server"
     owner: Optional[str] = None
     criticality: Optional[str] = "medium"
+    tenant_id: Optional[str] = None
 
+class OrganizationCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    tenant_id: Optional[str] = None
+
+class IncidentCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    severity: Optional[str] = "medium"
+    status: Optional[str] = "open"
+    tags: Optional[list] = None
+    tenant_id: Optional[str] = None
+
+class ReportCreate(BaseModel):
+    title: str
+    period: Optional[str] = "weekly"
+    content: Optional[str] = None
+    filename: Optional[str] = None
+    tenant_id: Optional[str] = None
+
+class CredentialCreate(BaseModel):
+    name: str
+    service: str
+    key_value: str
+    tenant_id: Optional[str] = None
+
+class AIConversationCreate(BaseModel):
+    prompt: str
+    response: Optional[str] = None
+    feature: Optional[str] = "chat"
+    user_id: Optional[str] = None
+    tenant_id: Optional[str] = None
+
+class KnowledgeChunkCreate(BaseModel):
+    source_type: str
+    title: str
+    content: str
+    embedding: Optional[list] = None
+    tenant_id: Optional[str] = None
+
+class IndicatorCreate(BaseModel):
+    ip_address: str
+    verdict: Optional[str] = "suspicious"
+    malicious_signals: Optional[int] = 0
+    sources_checked: Optional[list] = None
+    details: Optional[dict] = None
+    country: Optional[str] = None
+    tenant_id: Optional[str] = None
+
+class AlertCreate(BaseModel):
+    alert_type: Optional[str] = "system"
+    title: str
+    severity: Optional[str] = "medium"
+    detail: Optional[str] = None
+    source_ip: Optional[str] = None
+    dest_ip: Optional[str] = None
+    raw_event: Optional[dict] = None
+    tenant_id: Optional[str] = None
+
+
+# ── Assets endpoints ──
 @app.get("/assets")
-def list_assets(user=Depends(verify_token)):
-    db = SessionLocal()
-    assets = db.query(Asset).order_by(Asset.created_at.desc()).all()
-    db.close()
+def list_assets(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    assets = scoped_db.query(Asset).order_by(Asset.created_at.desc()).all()
     return [
         {
             "id": a.id, "name": a.name, "ip_address": a.ip_address,
             "asset_type": a.asset_type, "owner": a.owner,
             "criticality": a.criticality, "status": a.status,
+            "tenant_id": a.tenant_id,
             "created_at": a.created_at.isoformat()
         } for a in assets
     ]
 
 @app.post("/assets")
-def create_asset(payload: AssetCreate, user=Depends(verify_token)):
-    db = SessionLocal()
-    asset = Asset(**payload.dict())
-    db.add(asset)
-    db.commit()
-    db.refresh(asset)
-    db.close()
-    return {"id": asset.id, "message": "Asset created"}
+def create_asset(
+    payload: AssetCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    data = payload.dict(exclude={"tenant_id"})
+    asset = Asset(**data)
+    scoped_db.add(asset)
+    scoped_db.commit()
+    scoped_db.refresh(asset)
+    return {"id": asset.id, "tenant_id": asset.tenant_id, "message": "Asset created"}
+
+@app.get("/assets/{asset_id}")
+def get_asset(
+    asset_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    asset = check_resource_access(scoped_db, Asset, asset_id)
+    return {
+        "id": asset.id, "name": asset.name, "ip_address": asset.ip_address,
+        "asset_type": asset.asset_type, "owner": asset.owner,
+        "criticality": asset.criticality, "status": asset.status,
+        "tenant_id": asset.tenant_id, "created_at": asset.created_at.isoformat()
+    }
 
 @app.delete("/assets/{asset_id}")
-def delete_asset(asset_id: int, user=Depends(require_role("analyst"))):
-    db = SessionLocal()
-    asset = db.query(Asset).filter(Asset.id == asset_id).first()
-    if not asset:
-        db.close()
-        return {"error": "Asset not found"}
-    db.delete(asset)
-    db.commit()
-    db.close()
-    return {"message": "Asset deleted"}
+def delete_asset(
+    asset_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    asset = scoped_db.query(Asset).filter(Asset.id == asset_id).first()
+    if asset:
+        scoped_db.delete(asset)
+        scoped_db.commit()
+        return {"message": "Asset deleted"}
+    other = scoped_db.get_unscoped(Asset).filter(Asset.id == asset_id).first()
+    if other:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access denied: Resource {asset_id} belongs to another tenant",
+        )
+    return {"error": "Asset not found"}
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# ORGANIZATIONS — simple tenant/org CRUD (for the frontend Organizations page)
-# ══════════════════════════════════════════════════════════════════════════
-
-class OrganizationCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-
+# ── Organizations endpoints ──
 @app.get("/organizations")
-def list_organizations(user=Depends(verify_token)):
-    db = SessionLocal()
-    orgs = db.query(Organization).order_by(Organization.created_at.desc()).all()
-    db.close()
+def list_organizations(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    orgs = scoped_db.query(Organization).order_by(Organization.created_at.desc()).all()
     return [
-        {"id": o.id, "name": o.name, "description": o.description, "created_at": o.created_at.isoformat()}
+        {
+            "id": o.id, "name": o.name, "description": o.description,
+            "tenant_id": o.tenant_id, "created_at": o.created_at.isoformat()
+        }
         for o in orgs
     ]
 
 @app.post("/organizations")
-def create_organization(payload: OrganizationCreate, user=Depends(verify_token)):
-    db = SessionLocal()
-    org = Organization(**payload.dict())
-    db.add(org)
-    db.commit()
-    db.refresh(org)
-    db.close()
-    return {"id": org.id, "message": "Organization created"}
+def create_organization(
+    payload: OrganizationCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    data = payload.dict(exclude={"tenant_id"})
+    org = Organization(**data)
+    scoped_db.add(org)
+    scoped_db.commit()
+    scoped_db.refresh(org)
+    return {"id": org.id, "tenant_id": org.tenant_id, "message": "Organization created"}
+
+@app.get("/organizations/{org_id}")
+def get_organization(
+    org_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    org = check_resource_access(scoped_db, Organization, org_id)
+    return {
+        "id": org.id, "name": org.name, "description": org.description,
+        "tenant_id": org.tenant_id, "created_at": org.created_at.isoformat()
+    }
 
 @app.delete("/organizations/{org_id}")
-def delete_organization(org_id: int, user=Depends(require_role("analyst"))):
-    db = SessionLocal()
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        db.close()
-        return {"error": "Organization not found"}
-    db.delete(org)
-    db.commit()
-    db.close()
-    return {"message": "Organization deleted"}
+def delete_organization(
+    org_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    org = scoped_db.query(Organization).filter(Organization.id == org_id).first()
+    if org:
+        scoped_db.delete(org)
+        scoped_db.commit()
+        return {"message": "Organization deleted"}
+    other = scoped_db.get_unscoped(Organization).filter(Organization.id == org_id).first()
+    if other:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access denied: Resource {org_id} belongs to another tenant",
+        )
+    return {"error": "Organization not found"}
+
+
+# ── Incidents endpoints ──
+@app.get("/incidents")
+def list_incidents(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    items = scoped_db.query(Incident).order_by(Incident.created_at.desc()).all()
+    return [
+        {
+            "id": i.id, "title": i.title, "description": i.description,
+            "severity": i.severity, "status": i.status, "tags": i.tags,
+            "tenant_id": i.tenant_id, "created_at": i.created_at.isoformat()
+        } for i in items
+    ]
+
+@app.post("/incidents")
+def create_incident(
+    payload: IncidentCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    data = payload.dict(exclude={"tenant_id"})
+    inc = Incident(**data)
+    scoped_db.add(inc)
+    scoped_db.commit()
+    scoped_db.refresh(inc)
+    return {"id": inc.id, "tenant_id": inc.tenant_id, "message": "Incident created"}
+
+@app.get("/incidents/{incident_id}")
+def get_incident(
+    incident_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    inc = check_resource_access(scoped_db, Incident, incident_id)
+    return {
+        "id": inc.id, "title": inc.title, "description": inc.description,
+        "severity": inc.severity, "status": inc.status, "tags": inc.tags,
+        "tenant_id": inc.tenant_id, "created_at": inc.created_at.isoformat()
+    }
+
+@app.delete("/incidents/{incident_id}")
+def delete_incident(
+    incident_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    inc = check_resource_access(scoped_db, Incident, incident_id)
+    scoped_db.delete(inc)
+    scoped_db.commit()
+    return {"message": "Incident deleted"}
+
+
+# ── Reports endpoints ──
+@app.get("/reports")
+def list_reports(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    reports = scoped_db.query(Report).order_by(Report.created_at.desc()).all()
+    return [
+        {
+            "id": r.id, "title": r.title, "period": r.period,
+            "content": r.content, "filename": r.filename,
+            "tenant_id": r.tenant_id, "created_at": r.created_at.isoformat()
+        } for r in reports
+    ]
+
+@app.post("/reports")
+def create_report(
+    payload: ReportCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    data = payload.dict(exclude={"tenant_id"})
+    rep = Report(**data)
+    scoped_db.add(rep)
+    scoped_db.commit()
+    scoped_db.refresh(rep)
+    return {"id": rep.id, "tenant_id": rep.tenant_id, "message": "Report created"}
+
+@app.get("/reports/{report_id}")
+def get_report(
+    report_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    rep = check_resource_access(scoped_db, Report, report_id)
+    return {
+        "id": rep.id, "title": rep.title, "period": rep.period,
+        "content": rep.content, "filename": rep.filename,
+        "tenant_id": rep.tenant_id, "created_at": rep.created_at.isoformat()
+    }
+
+@app.delete("/reports/{report_id}")
+def delete_report(
+    report_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    rep = check_resource_access(scoped_db, Report, report_id)
+    scoped_db.delete(rep)
+    scoped_db.commit()
+    return {"message": "Report deleted"}
+
+
+# ── API Credentials endpoints ──
+@app.get("/credentials")
+def list_credentials(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    creds = scoped_db.query(APICredential).order_by(APICredential.created_at.desc()).all()
+    return [
+        {
+            "id": c.id, "name": c.name, "service": c.service,
+            "masked_key": (c.key_value[:4] + "..." + c.key_value[-4:]) if len(c.key_value) >= 8 else "****",
+            "tenant_id": c.tenant_id, "created_at": c.created_at.isoformat()
+        } for c in creds
+    ]
+
+@app.post("/credentials")
+def create_credential(
+    payload: CredentialCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    data = payload.dict(exclude={"tenant_id"})
+    cred = APICredential(**data)
+    scoped_db.add(cred)
+    scoped_db.commit()
+    scoped_db.refresh(cred)
+    return {"id": cred.id, "tenant_id": cred.tenant_id, "message": "Credential created"}
+
+@app.get("/credentials/{credential_id}")
+def get_credential(
+    credential_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    cred = check_resource_access(scoped_db, APICredential, credential_id)
+    return {
+        "id": cred.id, "name": cred.name, "service": cred.service,
+        "masked_key": (cred.key_value[:4] + "..." + cred.key_value[-4:]) if len(cred.key_value) >= 8 else "****",
+        "tenant_id": cred.tenant_id, "created_at": cred.created_at.isoformat()
+    }
+
+@app.delete("/credentials/{credential_id}")
+def delete_credential(
+    credential_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    cred = check_resource_access(scoped_db, APICredential, credential_id)
+    scoped_db.delete(cred)
+    scoped_db.commit()
+    return {"message": "Credential deleted"}
+
+
+# ── AI Conversations endpoints ──
+@app.get("/ai/conversations")
+def list_ai_conversations(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    convs = scoped_db.query(AIConversation).order_by(AIConversation.created_at.desc()).all()
+    return [
+        {
+            "id": c.id, "prompt": c.prompt, "response": c.response,
+            "feature": c.feature, "user_id": c.user_id,
+            "tenant_id": c.tenant_id, "created_at": c.created_at.isoformat()
+        } for c in convs
+    ]
+
+@app.post("/ai/conversations")
+def create_ai_conversation(
+    payload: AIConversationCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    data = payload.dict(exclude={"tenant_id"})
+    conv = AIConversation(**data)
+    scoped_db.add(conv)
+    scoped_db.commit()
+    scoped_db.refresh(conv)
+    return {"id": conv.id, "tenant_id": conv.tenant_id, "message": "Conversation recorded"}
+
+@app.get("/ai/conversations/{conv_id}")
+def get_ai_conversation(
+    conv_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    conv = check_resource_access(scoped_db, AIConversation, conv_id)
+    return {
+        "id": conv.id, "prompt": conv.prompt, "response": conv.response,
+        "feature": conv.feature, "user_id": conv.user_id,
+        "tenant_id": conv.tenant_id, "created_at": conv.created_at.isoformat()
+    }
+
+@app.delete("/ai/conversations/{conv_id}")
+def delete_ai_conversation(
+    conv_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    conv = check_resource_access(scoped_db, AIConversation, conv_id)
+    scoped_db.delete(conv)
+    scoped_db.commit()
+    return {"message": "Conversation deleted"}
+
+
+# ── Knowledge base / Playbooks / Rules endpoints ──
+@app.get("/knowledge/chunks")
+def list_knowledge_chunks(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    chunks = scoped_db.query(KnowledgeChunk).order_by(KnowledgeChunk.created_at.desc()).all()
+    return [
+        {
+            "id": c.id, "source_type": c.source_type, "title": c.title,
+            "content": c.content, "tenant_id": c.tenant_id,
+            "created_at": c.created_at.isoformat()
+        } for c in chunks
+    ]
+
+@app.post("/knowledge/chunks")
+def create_knowledge_chunk(
+    payload: KnowledgeChunkCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    data = payload.dict(exclude={"tenant_id"})
+    chunk = KnowledgeChunk(**data)
+    scoped_db.add(chunk)
+    scoped_db.commit()
+    scoped_db.refresh(chunk)
+    return {"id": chunk.id, "tenant_id": chunk.tenant_id, "message": "Knowledge chunk created"}
+
+@app.get("/knowledge/chunks/{chunk_id}")
+def get_knowledge_chunk(
+    chunk_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    chunk = check_resource_access(scoped_db, KnowledgeChunk, chunk_id)
+    return {
+        "id": chunk.id, "source_type": chunk.source_type, "title": chunk.title,
+        "content": chunk.content, "tenant_id": chunk.tenant_id,
+        "created_at": chunk.created_at.isoformat()
+    }
+
+@app.delete("/knowledge/chunks/{chunk_id}")
+def delete_knowledge_chunk(
+    chunk_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    chunk = check_resource_access(scoped_db, KnowledgeChunk, chunk_id)
+    scoped_db.delete(chunk)
+    scoped_db.commit()
+    return {"message": "Knowledge chunk deleted"}
+
+@app.get("/playbooks")
+def list_playbooks(
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    chunks = scoped_db.query(KnowledgeChunk).filter(KnowledgeChunk.source_type == "playbook").order_by(KnowledgeChunk.created_at.desc()).all()
+    return [
+        {
+            "id": c.id, "title": c.title, "content": c.content,
+            "tenant_id": c.tenant_id, "created_at": c.created_at.isoformat()
+        } for c in chunks
+    ]
+
+@app.get("/playbooks/{playbook_id}")
+def get_playbook(
+    playbook_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    chunk = check_resource_access(scoped_db, KnowledgeChunk, playbook_id)
+    return {
+        "id": chunk.id, "title": chunk.title, "content": chunk.content,
+        "tenant_id": chunk.tenant_id, "created_at": chunk.created_at.isoformat()
+    }
+
+
+# ── Threat Intel Indicators CRUD ──
+@app.post("/threat-intel/indicators")
+def create_indicator_endpoint(
+    payload: IndicatorCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    data = payload.dict(exclude={"tenant_id"})
+    ind = Indicator(**data)
+    scoped_db.add(ind)
+    scoped_db.commit()
+    scoped_db.refresh(ind)
+    return {"id": ind.id, "tenant_id": ind.tenant_id, "message": "Indicator created"}
+
+@app.get("/threat-intel/indicators/{indicator_id}")
+def get_indicator_endpoint(
+    indicator_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    ind = check_resource_access(scoped_db, Indicator, indicator_id)
+    return {
+        "id": ind.id, "ip_address": ind.ip_address, "verdict": ind.verdict,
+        "malicious_signals": ind.malicious_signals, "sources_checked": ind.sources_checked,
+        "country": ind.country, "tenant_id": ind.tenant_id,
+        "checked_at": ind.checked_at.isoformat()
+    }
+
+@app.delete("/threat-intel/indicators/{indicator_id}")
+def delete_indicator_endpoint(
+    indicator_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    ind = check_resource_access(scoped_db, Indicator, indicator_id)
+    scoped_db.delete(ind)
+    scoped_db.commit()
+    return {"message": "Indicator deleted"}
+
+
+# ── Direct Alerts CRUD ──
+@app.post("/alerts")
+def create_alert(
+    payload: AlertCreate,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    atype = (payload.alert_type or "system").lower()
+    if atype == "suricata":
+        alert = SuricataAlert(
+            signature=payload.title,
+            severity=1 if payload.severity in ("critical", "high", "malicious") else 3,
+            src_ip=payload.source_ip,
+            dest_ip=payload.dest_ip,
+            raw_event=payload.raw_event or {},
+        )
+    elif atype == "zeek":
+        alert = ZeekNotice(
+            note_type=payload.title,
+            message=payload.detail or payload.title,
+            src_ip=payload.source_ip,
+            dest_ip=payload.dest_ip,
+            raw_event=payload.raw_event or {},
+        )
+    elif atype == "falco":
+        alert = FalcoEvent(
+            rule=payload.title,
+            priority=payload.severity or "Notice",
+            output=payload.detail or payload.title,
+            raw_event=payload.raw_event or {},
+        )
+    else:
+        alert = SystemAlert(
+            tool=atype,
+            message=f"{payload.title}: {payload.detail or ''}",
+            severity=payload.severity or "warning",
+        )
+    scoped_db.add(alert)
+    scoped_db.commit()
+    scoped_db.refresh(alert)
+    return {"id": alert.id, "tenant_id": alert.tenant_id, "message": "Alert created"}
+
+@app.get("/alerts/{alert_id}")
+def get_alert_by_id(
+    alert_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    for cls in (SystemAlert, SuricataAlert, FalcoEvent, ZeekNotice):
+        rec = scoped_db.query(cls).filter(cls.id == alert_id).first()
+        if rec:
+            return {
+                "id": rec.id, "type": cls.__name__,
+                "tenant_id": rec.tenant_id,
+                "timestamp": rec.timestamp.isoformat()
+            }
+    for cls in (SystemAlert, SuricataAlert, FalcoEvent, ZeekNotice):
+        rec = scoped_db.get_unscoped(cls).filter(cls.id == alert_id).first()
+        if rec:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied: Resource {alert_id} belongs to another tenant",
+            )
+    raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
+
+@app.delete("/alerts/{alert_id}")
+def delete_alert_by_id(
+    alert_id: int,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(require_role("analyst")),
+):
+    for cls in (SystemAlert, SuricataAlert, FalcoEvent, ZeekNotice):
+        rec = scoped_db.query(cls).filter(cls.id == alert_id).first()
+        if rec:
+            scoped_db.delete(rec)
+            scoped_db.commit()
+            return {"message": "Alert deleted"}
+    for cls in (SystemAlert, SuricataAlert, FalcoEvent, ZeekNotice):
+        rec = scoped_db.get_unscoped(cls).filter(cls.id == alert_id).first()
+        if rec:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied: Resource {alert_id} belongs to another tenant",
+            )
+    raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
