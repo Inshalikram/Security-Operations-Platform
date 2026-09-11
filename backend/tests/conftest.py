@@ -2,6 +2,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 os.environ["ENABLE_OTEL"] = "false"
+os.environ["REDIS_HOST"] = "127.0.0.1"
 
 import pytest
 from unittest.mock import patch, MagicMock
@@ -14,6 +15,19 @@ def fake_verify_token():
     return {"preferred_username": "test_user", "sub": "test-id", "realm_access": {"roles": ["analyst"]}}
 
 app.dependency_overrides[verify_token] = fake_verify_token
+
+@pytest.fixture(autouse=True)
+def clean_redis_cache():
+    from cache import redis_client
+    try:
+        redis_client.flushdb()
+    except Exception:
+        pass
+    yield
+    try:
+        redis_client.flushdb()
+    except Exception:
+        pass
 
 @pytest.fixture(autouse=True)
 def mock_elasticsearch_indexing():

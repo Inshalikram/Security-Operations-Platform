@@ -63,7 +63,7 @@ def fake_requests_get_malicious(url, headers=None, params=None, timeout=None):
 
 
 def test_unified_check_clean_verdict(client, monkeypatch):
-    monkeypatch.setattr(main.requests, "get", fake_requests_get_clean)
+    monkeypatch.setattr("requests.get", fake_requests_get_clean)
 
     response = client.get("/threat-intel/check/8.8.8.8")
     assert response.status_code == 200
@@ -75,9 +75,9 @@ def test_unified_check_clean_verdict(client, monkeypatch):
 
 
 def test_unified_check_malicious_verdict(client, monkeypatch):
-    monkeypatch.setattr(main.requests, "get", fake_requests_get_malicious)
+    monkeypatch.setattr("requests.get", fake_requests_get_malicious)
     monkeypatch.setattr(
-        main.requests, "post",
+        "requests.post",
         lambda *a, **k: FakeResponse({"_id": "fake-case-id", "title": "mocked"})
     )
 
@@ -89,7 +89,7 @@ def test_unified_check_malicious_verdict(client, monkeypatch):
 
 
 def test_threat_intel_history_returns_list(client, monkeypatch):
-    monkeypatch.setattr(main.requests, "get", fake_requests_get_clean)
+    monkeypatch.setattr("requests.get", fake_requests_get_clean)
     client.get("/threat-intel/check/8.8.4.4")  # ensure at least one record exists
 
     response = client.get("/threat-intel/history")

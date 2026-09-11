@@ -6,6 +6,8 @@ redis_client = redis.Redis(
     host=os.getenv("REDIS_HOST", "redis"),
     port=int(os.getenv("REDIS_PORT", 6379)),
     decode_responses=True,
+    socket_connect_timeout=float(os.getenv("REDIS_CONNECT_TIMEOUT", 1.0)),
+    socket_timeout=float(os.getenv("REDIS_TIMEOUT", 1.0)),
 )
 
 
