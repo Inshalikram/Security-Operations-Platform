@@ -5,16 +5,9 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from main import Base, KnowledgeChunk
+from main import Base, KnowledgeChunk, SessionLocal
 from rag import embed_text
 import yaml
-
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://sop_admin:changeme@postgres:5432/sop_db")
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
-Base.metadata.create_all(bind=engine)
 
 SIGMA_RULES_DIR = os.path.join(os.path.dirname(__file__), "rules", "sigma")
 
@@ -74,8 +67,7 @@ def seed_sigma_rules(db):
             rule = yaml.safe_load(f)
         text = f"Sigma rule: {rule.get('title', filename)}. {rule.get('description', '')}"
         emb = embed_text(text)
-        if emb:
-            db.add(KnowledgeChunk(source_type="sigma_rule", title=rule.get("title", filename), content=text, embedding=emb))
+        db.add(KnowledgeChunk(source_type="sigma_rule", title=rule.get("title", filename), content=text, embedding=emb))
     db.commit()
     print("Seeded Sigma rules")
 
@@ -85,8 +77,7 @@ def seed_mitre(db):
     for t in MITRE_TECHNIQUES:
         text = f"MITRE ATT&CK {t['id']} - {t['name']}: {t['desc']}"
         emb = embed_text(text)
-        if emb:
-            db.add(KnowledgeChunk(source_type="mitre", title=f"{t['id']} {t['name']}", content=text, embedding=emb))
+        db.add(KnowledgeChunk(source_type="mitre", title=f"{t['id']} {t['name']}", content=text, embedding=emb))
     db.commit()
     print("Seeded MITRE ATT&CK techniques")
 
@@ -96,8 +87,7 @@ def seed_cves(db):
     for c in SAMPLE_CVES:
         text = f"{c['id']} ({c['title']}): {c['desc']}"
         emb = embed_text(text)
-        if emb:
-            db.add(KnowledgeChunk(source_type="cve", title=f"{c['id']} {c['title']}", content=text, embedding=emb))
+        db.add(KnowledgeChunk(source_type="cve", title=f"{c['id']} {c['title']}", content=text, embedding=emb))
     db.commit()
     print("Seeded sample CVEs")
 
@@ -107,8 +97,7 @@ def seed_playbooks(db):
     for p in PLAYBOOKS:
         text = f"Playbook: {p['title']}. {p['content']}"
         emb = embed_text(text)
-        if emb:
-            db.add(KnowledgeChunk(source_type="playbook", title=p["title"], content=text, embedding=emb))
+        db.add(KnowledgeChunk(source_type="playbook", title=p["title"], content=text, embedding=emb))
     db.commit()
     print("Seeded playbooks")
 
