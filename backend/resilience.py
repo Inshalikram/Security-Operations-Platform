@@ -84,3 +84,42 @@ def build_dlq_entry(service: str, payload: dict, error: str) -> dict:
         "error": error,
         "failed_at": time.time(),
     }
+
+
+def resilient_call(service_name, func, *args, max_attempts=3, failure_threshold=5,
+                   recovery_timeout=60, **kwargs):
+    breaker = get_breaker(service_name, failure_threshold=failure_threshold,
+                           recovery_timeout=recovery_timeout)
+    if not breaker.allow_request():
+        raise RuntimeError(f"{service_name}_circuit_open: too many recent failures, skipping call")
+
+    attempt = 0
+    last_exc = None
+    while attempt < max_attempts:
+        attempt += 1
+        try:
+            res = func(*args, **kwargs)
+            breaker.record_success()
+            return res
+        except Exception as e:
+            last_exc = e
+            if attempt >= max_attempts:
+                breaker.record_failure()
+                logger.error(f"{service_name} call failed after {attempt} attempts: {e}")
+                raise
+            delay = min(0.5 * (2 ** (attempt - 1)), 8.0)
+            logger.warning(f"{service_name} call attempt {attempt} failed ({e}), retrying in {delay}s")
+            time.sleep(delay)
+    raise last_exc
+
+
+def get_all_breaker_states() -> dict:
+    """Returns the current state of all known circuit breakers."""
+    return {
+        name: {
+            "state": b.state,
+            "failures": b.failures,
+            "opened_at": b.opened_at,
+        }
+        for name, b in _breakers.items()
+    }

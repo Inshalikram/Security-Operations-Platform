@@ -221,14 +221,15 @@ class MalwareInvestigationState(TypedDict):
 
 def query_vt_for_hash(state: MalwareInvestigationState) -> MalwareInvestigationState:
     """Agent decides what to query based on what evidence is available."""
-    import requests
+    from resilience import resilient_request
     if not state.get("file_hash"):
         state["vt_findings"] = {"note": "No hash provided, skipped VirusTotal hash lookup"}
         return state
     headers = {"x-apikey": os.getenv("VIRUSTOTAL_API_KEY")}
     url = f"https://www.virustotal.com/api/v3/files/{state['file_hash']}"
     try:
-        resp = requests.get(url, headers=headers, timeout=10).json()
+        resp = resilient_request("virustotal", "GET", url, headers=headers, timeout=10,
+                                 max_attempts=2, recovery_timeout=60).json()
         attr = resp.get("data", {}).get("attributes", {})
         stats = attr.get("last_analysis_stats", {})
         state["vt_findings"] = {

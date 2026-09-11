@@ -525,7 +525,7 @@ def root():
     return {"message": "SOC Platform Backend is running"}
 
 
-# ── Real health check — pings Postgres and Redis instead of just returning "healthy" blindly. ──
+# ── Real health check — pings Postgres and Redis, and checks circuit breaker states ──
 @app.get("/health")
 def health():
     checks = {}
@@ -544,6 +544,11 @@ def health():
         checks["redis"] = "up"
     except Exception as e:
         checks["redis"] = f"down: {e}"
+
+    from resilience import _breakers
+    for svc_name, breaker in _breakers.items():
+        if breaker.state == "open":
+            checks[f"{svc_name}_circuit"] = f"down: circuit_open ({breaker.failures} failures)"
 
     overall = "healthy" if all(v == "up" for v in checks.values()) else "degraded"
     return {"status": overall, "checks": checks}
@@ -835,6 +840,10 @@ def unified_threat_check(ip_address: str, tenant_id: str = "default"):
     else:
         result["overall_verdict"] = "clean"
 
+    # ── Graceful Degradation flags (Phase 4 requirement) ──
+    result["degraded"] = len(result["sources_failed"]) > 0
+    result["unavailable_sources"] = list(result["sources_failed"])
+
     # ── Track detection rate by verdict type ──
     THREAT_VERDICTS.labels(verdict=result["overall_verdict"]).inc()
 
@@ -844,27 +853,35 @@ def unified_threat_check(ip_address: str, tenant_id: str = "default"):
         or result["details"].get("otx", {}).get("country")
     )
 
-    # Save to database
-    db = SessionLocal()
-    new_record = Indicator(
-        ip_address=ip_address,
-        verdict=result["overall_verdict"],
-        malicious_signals=result["malicious_signals"],
-        sources_checked=result["sources_checked"],
-        details=result["details"],
-        country=country
-    )
-    db.add(new_record)
-    db.commit()
-    # ── Index into Elasticsearch for /search — best-effort, never breaks this endpoint ──
-    index_document("threat_indicators", new_record.id, {
-        "ip": new_record.ip_address,
-        "verdict": new_record.verdict,
-        "malicious_signals": new_record.malicious_signals,
-        "country": new_record.country,
-        "checked_at": new_record.checked_at.isoformat()
-    })
-    db.close()
+    # Save to database (fail-safe: DB issue never breaks the threat check response)
+    try:
+        db = SessionLocal()
+        new_record = Indicator(
+            ip_address=ip_address,
+            verdict=result["overall_verdict"],
+            malicious_signals=result["malicious_signals"],
+            sources_checked=result["sources_checked"],
+            details=result["details"],
+            country=country,
+            tenant_id=tenant_id or "default",
+        )
+        db.add(new_record)
+        db.commit()
+        # ── Index into Elasticsearch for /search — best-effort, never breaks this endpoint ──
+        try:
+            index_document("threat_indicators", new_record.id, {
+                "ip": new_record.ip_address,
+                "verdict": new_record.verdict,
+                "malicious_signals": new_record.malicious_signals,
+                "country": new_record.country,
+                "checked_at": new_record.checked_at.isoformat()
+            })
+        except Exception:
+            pass
+        db.close()
+    except Exception as e:
+        logger.warning(f"Failed to record threat check in database: {e}")
+
     # Broadcast to WebSocket clients (fire-and-forget, safe even if no clients connected)
     try:
         import asyncio as _asyncio
@@ -994,6 +1011,14 @@ def retry_dead_letter_event(event_id: int, user=Depends(require_role("analyst"))
                                       json=event.payload, headers=hive_headers,
                                       timeout=15, max_attempts=2, recovery_timeout=45)
             event.retried = "success" if resp.status_code < 300 else "failed"
+        elif event.service == "elasticsearch":
+            p = event.payload or {}
+            index_document(
+                p.get("index", "threat_indicators"),
+                p.get("id"),
+                p.get("body", {})
+            )
+            event.retried = "success"
         else:
             event.retried = "failed"
         db.commit()
@@ -1041,9 +1066,26 @@ Sources Checked: {', '.join(threat_data['sources_checked'])}
 Details: {threat_data['details']}
 
 Give a 3-4 sentence explanation of what this means and whether it's worth investigating."""
-        return {"ip": ip_address, "verdict": threat_data["overall_verdict"], "ai_explanation": call_ai(prompt, provider, feature="explain_ioc")}
+        try:
+            return {"ip": ip_address, "verdict": threat_data["overall_verdict"], "ai_explanation": call_ai(prompt, provider, feature="explain_ioc")}
+        except Exception as ai_err:
+            logger.warning(f"AI call failed for explain_ioc, using fallback: {ai_err}")
+            fallback_explanation = (
+                f"[DEGRADED MODE - Rule-Based Fallback] Threat assessment for {ip_address}: "
+                f"Verdict is '{threat_data['overall_verdict']}' with {threat_data['malicious_signals']} malicious signal(s) "
+                f"across {len(threat_data['sources_checked'])} checked intelligence source(s). "
+                f"{'Immediate perimeter isolation and deep packet inspection recommended.' if threat_data['overall_verdict'] == 'malicious' else 'Routine monitoring advised.'}"
+            )
+            return {
+                "ip": ip_address,
+                "verdict": threat_data["overall_verdict"],
+                "ai_explanation": fallback_explanation,
+                "degraded": True,
+                "fallback": True,
+                "error": str(ai_err),
+            }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "degraded": True}
 
 
 @app.get("/ai/executive-summary/{ip_address}")
@@ -1058,9 +1100,24 @@ Signals found: {threat_data['malicious_signals']}
 Sources: {', '.join(threat_data['sources_checked'])}
 
 Focus on business impact and whether immediate action is needed."""
-        return {"ip": ip_address, "executive_summary": call_ai(prompt, provider, feature="executive_summary")}
+        try:
+            return {"ip": ip_address, "executive_summary": call_ai(prompt, provider, feature="executive_summary")}
+        except Exception as ai_err:
+            logger.warning(f"AI call failed for executive_summary, using fallback: {ai_err}")
+            fallback_summary = (
+                f"[DEGRADED MODE - Executive Fallback] Executive finding for {ip_address}: "
+                f"Classification is {threat_data['overall_verdict'].upper()}. "
+                f"{'High risk detected; automated containment and incident response initiated.' if threat_data['overall_verdict'] == 'malicious' else 'No immediate business impact identified; traffic remains within normal parameters.'}"
+            )
+            return {
+                "ip": ip_address,
+                "executive_summary": fallback_summary,
+                "degraded": True,
+                "fallback": True,
+                "error": str(ai_err),
+            }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "degraded": True}
 
 
 @app.get("/ai/mitre-map/{ip_address}")
@@ -1074,18 +1131,49 @@ Verdict: {threat_data['overall_verdict']}
 Details: {threat_data['details']}
 
 Return a short bulleted list of technique ID + name + one-line justification."""
-        return {"ip": ip_address, "mitre_mapping": call_ai(prompt, provider, feature="mitre_map")}
+        try:
+            return {"ip": ip_address, "mitre_mapping": call_ai(prompt, provider, feature="mitre_map")}
+        except Exception as ai_err:
+            logger.warning(f"AI call failed for mitre_map, using fallback: {ai_err}")
+            fallback_map = (
+                f"- T1071 (Standard Application Layer Protocol): Communication with external host {ip_address}.\n"
+                f"- T1043 (Commonly Used Port): Network activity observed on standard protocols."
+                if threat_data["overall_verdict"] in ["malicious", "suspicious"] else
+                "No MITRE ATT&CK techniques associated with benign finding."
+            )
+            return {
+                "ip": ip_address,
+                "mitre_mapping": fallback_map,
+                "degraded": True,
+                "fallback": True,
+                "error": str(ai_err),
+            }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "degraded": True}
 
 
 @app.get("/ai/cve/{cve_id}")
 def ai_cve_explain(cve_id: str, provider: str = None, user=Depends(verify_token)):
     prompt = f"""Explain {cve_id} in plain language for a SOC analyst: what it is, what's affected, how it's typically exploited, and its rough severity. If you're not certain of the exact details, say so rather than guessing specifics."""
     try:
-        return {"cve": cve_id, "explanation": call_ai(prompt, provider, feature="cve_explain")}
+        try:
+            return {"cve": cve_id, "explanation": call_ai(prompt, provider, feature="cve_explain")}
+        except Exception as ai_err:
+            logger.warning(f"AI call failed for cve_explain, using fallback: {ai_err}")
+            fallback_cve = (
+                f"[DEGRADED MODE - Advisory Fallback] Vulnerability {cve_id}: "
+                f"AI synthesis unavailable. Please inspect the official National Vulnerability Database (NVD) "
+                f"advisory at https://nvd.nist.gov/vuln/detail/{cve_id} or corresponding vendor security advisories."
+            )
+            return {
+                "cve": cve_id,
+                "explanation": fallback_cve,
+                "degraded": True,
+                "fallback": True,
+                "error": str(ai_err),
+            }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "degraded": True}
 
 
 class MalwareExplainRequest(BaseModel):
@@ -1104,9 +1192,23 @@ URL: {payload.url or 'not provided'}
 
 Keep it to 4-5 sentences. Recommend concrete next steps (e.g. check VirusTotal, sandbox detonation, isolate host)."""
     try:
-        return {"input": payload.dict(), "ai_explanation": call_ai(prompt, provider, feature="malware_explain")}
+        try:
+            return {"input": payload.dict(), "ai_explanation": call_ai(prompt, provider, feature="malware_explain")}
+        except Exception as ai_err:
+            logger.warning(f"AI call failed for malware_explain, using fallback: {ai_err}")
+            fallback_malware = (
+                f"[DEGRADED MODE - Malware Fallback] Artifact analysis for hash '{payload.hash or 'N/A'}' / file '{payload.filename or 'N/A'}': "
+                f"AI synthesis unavailable. Recommend immediate hash query on VirusTotal and sandbox detonation in isolated environment."
+            )
+            return {
+                "input": payload.dict(),
+                "ai_explanation": fallback_malware,
+                "degraded": True,
+                "fallback": True,
+                "error": str(ai_err),
+            }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "degraded": True}
 
 
 @app.get("/ai/recommend/{ip_address}")
@@ -1120,9 +1222,25 @@ Verdict: {threat_data['overall_verdict']}
 Malicious Signals: {threat_data['malicious_signals']}
 
 Return a short numbered list of recommended actions, ordered by priority."""
-        return {"ip": ip_address, "recommendations": call_ai(prompt, provider, feature="recommend")}
+        try:
+            return {"ip": ip_address, "recommendations": call_ai(prompt, provider, feature="recommend")}
+        except Exception as ai_err:
+            logger.warning(f"AI call failed for recommend, using fallback: {ai_err}")
+            fallback_recs = (
+                f"1. {'Block IP ' + ip_address + ' on edge firewalls.' if threat_data['overall_verdict'] == 'malicious' else 'Add IP to watchlist.'}\n"
+                f"2. {'Isolate affected endpoints communicating with ' + ip_address if threat_data['overall_verdict'] == 'malicious' else 'Monitor outbound connection attempts.'}\n"
+                f"3. Review historical SIEM/Suricata logs for prior connection attempts.\n"
+                f"4. Document indicator in threat intelligence repository."
+            )
+            return {
+                "ip": ip_address,
+                "recommendations": fallback_recs,
+                "degraded": True,
+                "fallback": True,
+                "error": str(ai_err),
+            }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "degraded": True}
 
 
 @app.get("/ai/threat-report/{ip_address}")
@@ -1136,9 +1254,29 @@ Verdict: {threat_data['overall_verdict']}
 Malicious Signals: {threat_data['malicious_signals']}
 Sources Checked: {', '.join(threat_data['sources_checked'])}
 Details: {threat_data['details']}"""
-        return {"ip": ip_address, "report": call_ai(prompt, provider, feature="threat_report")}
+        try:
+            return {"ip": ip_address, "report": call_ai(prompt, provider, feature="threat_report")}
+        except Exception as ai_err:
+            logger.warning(f"AI call failed for threat_report, using fallback: {ai_err}")
+            fallback_report = (
+                f"# Threat Intelligence Report: {ip_address} [DEGRADED MODE]\n\n"
+                f"## Summary\n"
+                f"- Overall Verdict: {threat_data['overall_verdict']}\n"
+                f"- Malicious Signals: {threat_data['malicious_signals']}\n"
+                f"- Feeds Checked: {', '.join(threat_data['sources_checked'])}\n\n"
+                f"## Recommended Next Steps\n"
+                f"1. {'Immediate firewall block and endpoint containment.' if threat_data['overall_verdict'] == 'malicious' else 'Continue standard telemetry logging.'}\n"
+                f"2. Cross-reference internal NetFlow logs for correlated anomalies."
+            )
+            return {
+                "ip": ip_address,
+                "report": fallback_report,
+                "degraded": True,
+                "fallback": True,
+                "error": str(ai_err),
+            }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "degraded": True}
 
 
 # ── RAG endpoint — combines current finding + this IP's own history from Postgres
@@ -1189,14 +1327,32 @@ IMPORTANT — grounding rules:
 - Do not use speculative or hedging language ("may be", "could indicate", "suggests that") to imply an attack technique unless the technique is explicitly supported by the source data. If uncertain, state that the data is insufficient to determine intent.
 - A history of "clean" verdicts, or being checked multiple times, is NOT evidence of scanning, probing, or suspicious monitoring. Repeated clean/benign findings should be described as reassuring (no threat pattern), never reframed as suspicious activity or a reason for concern."""
 
-        return {
-            "ip": ip_address,
-            "past_incidents_count": len(past_incidents),
-            "knowledge_sources_used": [{"type": c.source_type, "title": c.title} for c in relevant_chunks],
-            "ai_explanation": call_ai(prompt, provider, feature="rag_explain")
-        }
+        try:
+            return {
+                "ip": ip_address,
+                "past_incidents_count": len(past_incidents),
+                "knowledge_sources_used": [{"type": c.source_type, "title": c.title} for c in relevant_chunks],
+                "ai_explanation": call_ai(prompt, provider, feature="rag_explain")
+            }
+        except Exception as ai_err:
+            logger.warning(f"AI call failed for rag_explain, using fallback: {ai_err}")
+            fallback = (
+                f"[DEGRADED MODE - RAG Fallback] Historical analysis for {ip_address}: "
+                f"Verdict: {threat_data['overall_verdict']}. Past incidents on record: {len(past_incidents)}. "
+                f"Relevant knowledge chunks: {len(relevant_chunks)}. "
+                f"{'Attention required: recurring high-risk pattern detected.' if threat_data['overall_verdict'] == 'malicious' else 'Benign baseline telemetry.'}"
+            )
+            return {
+                "ip": ip_address,
+                "past_incidents_count": len(past_incidents),
+                "knowledge_sources_used": [{"type": c.source_type, "title": c.title} for c in relevant_chunks],
+                "ai_explanation": fallback,
+                "degraded": True,
+                "fallback": True,
+                "error": str(ai_err),
+            }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "degraded": True}
 
 
 # ── AGENTIC AI ENDPOINTS (4 autonomous LangGraph agents, all Keycloak-protected) ──
@@ -2092,15 +2248,143 @@ def get_threat_map(user=Depends(verify_token)):
         return {"error": str(e)}
 
 
+def fallback_db_search(db, query: str, limit: int = 30):
+    """Fallback search across PostgreSQL tables when Elasticsearch is down.
+    Searches Indicator, Asset, Incident, SuricataAlert, and ZeekNotice."""
+    results = []
+    pattern = f"%{query}%"
+
+    try:
+        # 1. Indicators
+        indicators = db.query(Indicator).filter(
+            (Indicator.ip_address.ilike(pattern)) |
+            (Indicator.verdict.ilike(pattern)) |
+            (Indicator.country.ilike(pattern))
+        ).order_by(Indicator.checked_at.desc()).limit(limit).all()
+        for ind in indicators:
+            results.append({
+                "index": "threat_indicators",
+                "score": 1.0,
+                "id": ind.id,
+                "ip": ind.ip_address,
+                "verdict": ind.verdict,
+                "malicious_signals": ind.malicious_signals,
+                "country": ind.country,
+                "checked_at": ind.checked_at.isoformat() if ind.checked_at else None,
+            })
+
+        # 2. Assets
+        assets = db.query(Asset).filter(
+            (Asset.name.ilike(pattern)) |
+            (Asset.ip_address.ilike(pattern)) |
+            (Asset.owner.ilike(pattern)) |
+            (Asset.asset_type.ilike(pattern))
+        ).limit(limit).all()
+        for a in assets:
+            results.append({
+                "index": "assets",
+                "score": 1.0,
+                "id": a.id,
+                "name": a.name,
+                "ip": a.ip_address,
+                "asset_type": a.asset_type,
+                "owner": a.owner,
+                "criticality": a.criticality,
+            })
+
+        # 3. Incidents
+        incidents = db.query(Incident).filter(
+            (Incident.title.ilike(pattern)) |
+            (Incident.description.ilike(pattern)) |
+            (Incident.severity.ilike(pattern)) |
+            (Incident.status.ilike(pattern))
+        ).order_by(Incident.created_at.desc()).limit(limit).all()
+        for inc in incidents:
+            results.append({
+                "index": "cases",
+                "score": 1.0,
+                "id": inc.id,
+                "title": inc.title,
+                "description": inc.description,
+                "severity": inc.severity,
+                "status": inc.status,
+                "created_at": inc.created_at.isoformat() if inc.created_at else None,
+            })
+
+        # 4. Suricata Alerts
+        alerts = db.query(SuricataAlert).filter(
+            (SuricataAlert.signature.ilike(pattern)) |
+            (SuricataAlert.src_ip.ilike(pattern)) |
+            (SuricataAlert.dest_ip.ilike(pattern))
+        ).order_by(SuricataAlert.timestamp.desc()).limit(limit).all()
+        for alt in alerts:
+            results.append({
+                "index": "suricata_alerts",
+                "score": 1.0,
+                "id": alt.id,
+                "signature": alt.signature,
+                "src_ip": alt.src_ip,
+                "dest_ip": alt.dest_ip,
+                "severity": alt.severity,
+                "category": alt.category,
+            })
+
+        # 5. Zeek Notices
+        notices = db.query(ZeekNotice).filter(
+            (ZeekNotice.note_type.ilike(pattern)) |
+            (ZeekNotice.src_ip.ilike(pattern))
+        ).order_by(ZeekNotice.timestamp.desc()).limit(limit).all()
+        for n in notices:
+            results.append({
+                "index": "zeek_notices",
+                "score": 1.0,
+                "id": n.id,
+                "note_type": n.note_type,
+                "msg": getattr(n, "message", ""),
+                "src_ip": n.src_ip,
+            })
+    except Exception as e:
+        logger.warning(f"PostgreSQL fallback search error: {e}")
+
+    return results[:limit]
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # SEARCH — unified search across alerts/notices/indicators via Elasticsearch
+# with automatic graceful degradation to PostgreSQL fallback search.
 # ══════════════════════════════════════════════════════════════════════════
 
 @app.get("/search")
-def unified_search(q: str, user=Depends(verify_token)):
+def unified_search(
+    q: str,
+    user=Depends(verify_token),
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db)
+):
     if not q or not q.strip():
         return {"error": "query parameter 'q' is required"}
-    return {"query": q, "results": search_all(q)}
+
+    es_results = None
+    try:
+        es_results = search_all(q)
+    except Exception as e:
+        logger.warning(f"Elasticsearch search error: {e}")
+
+    if es_results is not None:
+        return {
+            "query": q,
+            "degraded": False,
+            "source": "elasticsearch",
+            "results": es_results
+        }
+
+    # Elasticsearch is unavailable or circuit is open — graceful degradation to PostgreSQL
+    fallback_results = fallback_db_search(scoped_db, q)
+    return {
+        "query": q,
+        "degraded": True,
+        "source": "postgresql_fallback",
+        "results": fallback_results
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════

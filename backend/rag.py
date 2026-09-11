@@ -1,6 +1,10 @@
 import os
 import math
+import logging
 import requests
+from resilience import resilient_request
+
+logger = logging.getLogger("rag")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 EMBED_MODEL = "gemini-embedding-001"
@@ -8,15 +12,16 @@ EMBED_MODEL = "gemini-embedding-001"
 
 def embed_text(text: str):
     """Returns an embedding vector for the given text using Gemini's embedding model.
+    Wrapped with retry and circuit breaker via resilient_request.
     Returns None on failure — callers must handle that (skip the chunk) rather than crash."""
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{EMBED_MODEL}:embedContent?key={GEMINI_API_KEY}"
         payload = {"content": {"parts": [{"text": text}]}}
-        resp = requests.post(url, json=payload, timeout=30)
-        resp.raise_for_status()
+        resp = resilient_request("gemini_embed", "POST", url, json=payload, timeout=20,
+                                 max_attempts=2, recovery_timeout=30)
         return resp.json()["embedding"]["values"]
     except Exception as e:
-        print("EMBED ERROR:", e)
+        logger.warning(f"EMBED ERROR: {e}")
         return None
 
 

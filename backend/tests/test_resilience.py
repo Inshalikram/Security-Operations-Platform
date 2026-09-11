@@ -166,3 +166,182 @@ def test_idempotency_lock_suppresses_duplicate_case():
         lock_key = "case_lock:7.7.7.7:malicious"
         assert acquire_lock(lock_key, ttl_seconds=300) is True   # pehli baar lock milta hai
         assert acquire_lock(lock_key, ttl_seconds=300) is False  # doosri baar duplicate detect hota hai
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PHASE 4: RELIABILITY / GRACEFUL DEGRADATION TESTS
+# ══════════════════════════════════════════════════════════════════════════
+
+def test_threat_intel_partial_failure_single_source(client):
+    """When VirusTotal fails/timeouts but AbuseIPDB/OTX/Shodan succeed,
+    response must return HTTP 200 with degraded: True and unavailable_sources: ['virustotal']."""
+    def fake_get(url, **kwargs):
+        if "virustotal.com" in url:
+            raise requests.exceptions.Timeout("VT timeout")
+        resp = MagicMock(status_code=200)
+        if "abuseipdb.com" in url:
+            resp.json.return_value = {"data": {"abuseConfidenceScore": 0, "totalReports": 0}}
+        elif "alienvault.com" in url:
+            resp.json.return_value = {"reputation": 0, "pulse_info": {"count": 0}, "country_name": "US"}
+        elif "shodan.io" in url:
+            resp.json.return_value = {"ports": [], "vulns": []}
+        return resp
+
+    with patch("resilience.requests.get", side_effect=fake_get):
+        response = client.get("/threat-intel/check/9.9.9.9")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["degraded"] is True
+        assert "virustotal" in data["unavailable_sources"]
+        assert set(data["sources_checked"]) == {"abuseipdb", "otx", "shodan"}
+        assert data["overall_verdict"] == "clean"
+        assert "timeout" in data["details"]["virustotal"]["error"]
+
+
+def test_threat_intel_partial_failure_multiple_sources(client):
+    """When 2 sources fail, the surviving sources are still aggregated."""
+    def fake_get(url, **kwargs):
+        if "virustotal.com" in url:
+            raise requests.exceptions.ConnectionError("VT down")
+        if "abuseipdb.com" in url:
+            raise requests.exceptions.HTTPError("AbuseIPDB 503", response=MagicMock(status_code=503))
+        resp = MagicMock(status_code=200)
+        if "alienvault.com" in url:
+            resp.json.return_value = {"reputation": -10, "pulse_info": {"count": 10}, "country_name": "RU"}
+        elif "shodan.io" in url:
+            resp.json.return_value = {"ports": [22], "vulns": []}
+        return resp
+
+    with patch("resilience.requests.get", side_effect=fake_get):
+        response = client.get("/threat-intel/check/9.9.9.8")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["degraded"] is True
+        assert set(data["unavailable_sources"]) == {"virustotal", "abuseipdb"}
+        assert set(data["sources_checked"]) == {"otx", "shodan"}
+        assert data["overall_verdict"] in ["suspicious", "malicious"]
+
+
+def test_threat_intel_all_sources_down_returns_unknown_not_500(client):
+    """When ALL sources fail, response is 200 (never 500), verdict is 'unknown', degraded is True."""
+    with patch("resilience.requests.get", side_effect=requests.exceptions.ConnectionError("network down")):
+        response = client.get("/threat-intel/check/9.9.9.7")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["degraded"] is True
+        assert len(data["unavailable_sources"]) == 4
+        assert data["sources_checked"] == []
+        assert data["overall_verdict"] == "unknown"
+        assert data["malicious_signals"] == 0
+
+
+def test_search_falls_back_to_postgres_when_elasticsearch_fails(client):
+    """When Elasticsearch search fails or cluster is down, /search falls back to PostgreSQL."""
+    payload = {
+        "name": "resilience-search-asset",
+        "ip_address": "10.99.99.99",
+        "asset_type": "server",
+        "criticality": "high"
+    }
+    create_resp = client.post("/assets", json=payload)
+    assert create_resp.status_code == 200
+
+    with patch("main.search_all", return_value=None):
+        response = client.get("/search?q=resilience-search-asset")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["degraded"] is True
+        assert data["source"] == "postgresql_fallback"
+        assert any(r.get("name") == "resilience-search-asset" for r in data["results"])
+
+
+def test_ai_explain_degraded_fallback_when_providers_down(client, mock_all_threat_sources_clean):
+    failing = MagicMock(side_effect=RuntimeError("all AI providers failed"))
+    with patch("main.call_ai", failing):
+        response = client.get("/ai/explain/1.2.3.4")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["degraded"] is True
+        assert data["fallback"] is True
+        assert "DEGRADED MODE" in data["ai_explanation"]
+
+
+def test_ai_executive_summary_degraded_fallback_when_providers_down(client, mock_all_threat_sources_clean):
+    failing = MagicMock(side_effect=RuntimeError("all AI providers failed"))
+    with patch("main.call_ai", failing):
+        response = client.get("/ai/executive-summary/1.2.3.4")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["degraded"] is True
+        assert data["fallback"] is True
+        assert "DEGRADED MODE" in data["executive_summary"]
+
+
+def test_ai_recommendations_degraded_fallback_when_providers_down(client, mock_all_threat_sources_clean):
+    failing = MagicMock(side_effect=RuntimeError("all AI providers failed"))
+    with patch("main.call_ai", failing):
+        response = client.get("/ai/recommend/1.2.3.4")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["degraded"] is True
+        assert data["fallback"] is True
+        assert "recommendations" in data
+
+
+def test_ai_cve_explain_degraded_fallback_when_providers_down(client):
+    failing = MagicMock(side_effect=RuntimeError("all AI providers failed"))
+    with patch("main.call_ai", failing):
+        response = client.get("/ai/cve/CVE-2024-9999")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["degraded"] is True
+        assert data["fallback"] is True
+        assert "DEGRADED MODE" in data["explanation"]
+        assert "NVD" in data["explanation"]
+
+
+def test_resilient_call_retries_and_trips_breaker():
+    from resilience import resilient_call, get_breaker
+    mock_func = MagicMock(side_effect=ValueError("connection broken"))
+
+    for _ in range(3):
+        try:
+            resilient_call("test_svc", mock_func, max_attempts=2, failure_threshold=3, recovery_timeout=60)
+        except Exception:
+            pass
+
+    breaker = get_breaker("test_svc")
+    assert breaker.state == "open"
+
+    with pytest.raises(RuntimeError, match="circuit_open"):
+        resilient_call("test_svc", mock_func, max_attempts=2, failure_threshold=3, recovery_timeout=60)
+
+
+def test_dlq_replay_for_elasticsearch_events(client):
+    from main import SessionLocal, DeadLetterEvent
+    db = SessionLocal()
+    event = DeadLetterEvent(service="elasticsearch", payload={"index": "threat_indicators", "id": 1, "body": {"test": "data"}}, error="ES connection timeout")
+    db.add(event)
+    db.commit()
+    event_id = event.id
+    db.close()
+
+    with patch("main.index_document", return_value=None):
+        response = client.post(f"/admin/dlq/{event_id}/retry")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["retried"] == "success"
+        assert data["service"] == "elasticsearch"
+
+
+def test_health_reports_degraded_when_circuit_open(client):
+    from resilience import get_breaker
+    breaker = get_breaker("elasticsearch")
+    breaker.state = "open"
+    breaker.failures = 5
+
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert "circuit_open" in data["checks"]["elasticsearch_circuit"]
