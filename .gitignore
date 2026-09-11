@@ -43,3 +43,4 @@ Thumbs.db
 reports/
 *.log
 gitleaks_report.json
+scripts/dr_backups/
