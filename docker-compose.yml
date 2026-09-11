@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-sop_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-sop_db}
     ports:
       - "5432:5432"
@@ -40,7 +40,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sop_admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-changeme123}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -56,7 +56,7 @@ services:
     command: start-dev
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin123}
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sop_db}
       KC_HOSTNAME_STRICT_HTTPS: "false"
@@ -64,7 +64,7 @@ services:
       KC_HOSTNAME_PORT: 8080
       KC_HTTP_ENABLED: "true"
       KC_DB_USERNAME: ${POSTGRES_USER:-sop_admin}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
       - "8080:8080"
     depends_on:
@@ -156,10 +156,10 @@ services:
     environment:
       - INDEXER_URL=https://wazuh-indexer:9200
       - INDEXER_USERNAME=${WAZUH_INDEXER_USER:-admin}
-      - INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD}
+      - INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD:-SecretPassword1}
       - FILEBEAT_SSL_VERIFICATION_MODE=none
       - API_USERNAME=${WAZUH_API_USER:-wazuh}
-      - API_PASSWORD=${WAZUH_API_PASSWORD}
+      - API_PASSWORD=${WAZUH_API_PASSWORD:-WazuhApi123!}
     volumes:
       - wazuh_certs:/wazuh-certs-src:ro
     entrypoint: ["/bin/bash", "-c", "mkdir -p /etc/filebeat/certs && cp /wazuh-certs-src/* /etc/filebeat/certs/ && rm -f /etc/services.d/filebeat/run && touch /etc/services.d/filebeat/down && exec /init"]
@@ -259,7 +259,7 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-sop_admin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sop_db}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-sop_admin}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-sop_db}
       - KEYCLOAK_URL=http://${HOST_IP:-169.58.221.49}:8080
       - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
       - OLLAMA_URL=http://host.docker.internal:11434
@@ -267,10 +267,10 @@ services:
       - ENABLE_OTEL=${ENABLE_OTEL:-true}
       - WAZUH_API_URL=https://wazuh-manager:55000
       - WAZUH_API_USER=${WAZUH_API_USER:-wazuh}
-      - WAZUH_API_PASSWORD=${WAZUH_API_PASSWORD}
+      - WAZUH_API_PASSWORD=${WAZUH_API_PASSWORD:-WazuhApi123!}
       - WAZUH_INDEXER_URL=https://wazuh.indexer:9200
       - WAZUH_INDEXER_USER=${WAZUH_INDEXER_USER:-admin}
-      - WAZUH_INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD}
+      - WAZUH_INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD:-SecretPassword1}
     ports:
       - "8000:8000"
     extra_hosts:
@@ -341,7 +341,7 @@ services:
     restart: unless-stopped
     environment:
       - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin123}
     ports:
       - "3002:3000"
     volumes:
@@ -367,7 +367,7 @@ services:
       - GENERIC_TIMEZONE=Asia/Karachi
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme123}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-}
     volumes:
       - n8n_data:/home/node/.n8n
