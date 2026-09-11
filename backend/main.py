@@ -28,7 +28,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from cache import get_cached, set_cached
+from cache import get_cached, set_cached, acquire_lock
 from storage import upload_bytes, get_presigned_url
 from rag import retrieve_relevant_chunks
 from search import index_document, search_all
@@ -179,10 +179,15 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # ── Tracing setup — exports spans to Tempo over OTLP/gRPC ──
 _otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://tempo:4317")
-trace.set_tracer_provider(TracerProvider())
-_tempo_exporter = OTLPSpanExporter(endpoint=_otel_endpoint, insecure=True)
-trace.get_tracer_provider().add_span_processor(BatchSpanProcessor(_tempo_exporter))
-FastAPIInstrumentor.instrument_app(app)
+_enable_otel = os.getenv("ENABLE_OTEL", "true").lower() not in ("false", "0", "no")
+if _enable_otel and _otel_endpoint and _otel_endpoint.lower() != "none":
+    try:
+        trace.set_tracer_provider(TracerProvider())
+        _tempo_exporter = OTLPSpanExporter(endpoint=_otel_endpoint, insecure=True)
+        trace.get_tracer_provider().add_span_processor(BatchSpanProcessor(_tempo_exporter))
+        FastAPIInstrumentor.instrument_app(app)
+    except Exception as e:
+        logger.warning(f"OpenTelemetry initialization skipped: {e}")
 
 # ── Custom business metrics (beyond auto-tracked HTTP requests) ──
 INCIDENTS_CREATED = Counter(
@@ -754,7 +759,16 @@ def unified_threat_check(ip_address: str):
         pass  # don't let broadcast failure break the main response
 
     # Auto-create TheHive case if suspicious or malicious
+    # ── Idempotency: same IP ke liye 5-min window mein sirf EK case banega,
+    # chahe kitni bhi concurrent/retry requests aayein (n8n retry, race condition, etc.) ──
     if result["overall_verdict"] in ["malicious", "suspicious"]:
+        lock_key = f"case_lock:{ip_address}:{result['overall_verdict']}"
+        if not acquire_lock(lock_key, ttl_seconds=300):
+            result["thehive_case"] = {"skipped": True, "reason": "duplicate_suppressed_idempotency_lock"}
+            if result["sources_checked"]:
+                set_cached(f"threat:{ip_address}", result)
+            return result
+
         case_payload = {
             "title": f"Threat Alert: {ip_address} - {result['overall_verdict']}",
             "description": f"Automated detection.\nVerdict: {result['overall_verdict']}\nMalicious signals: {result['malicious_signals']}\nSources checked: {', '.join(result['sources_checked'])}",

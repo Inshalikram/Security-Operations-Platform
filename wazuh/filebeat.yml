@@ -6,8 +6,8 @@ filebeat.inputs:
 
 output.elasticsearch:
   hosts: ["https://wazuh.indexer:9200"]
-  username: "admin"
-  password: "SecretPassword1"
+  username: "${INDEXER_USERNAME:admin}"
+  password: "${INDEXER_PASSWORD}"
   ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
   ssl.certificate: "/etc/filebeat/certs/wazuh.manager.pem"
   ssl.key: "/etc/filebeat/certs/wazuh.manager-key.pem"

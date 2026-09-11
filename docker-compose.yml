@@ -6,9 +6,9 @@ services:
     container_name: sop-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: sop_admin
-      POSTGRES_PASSWORD: changeme
-      POSTGRES_DB: sop_db
+      POSTGRES_USER: ${POSTGRES_USER:-sop_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-sop_db}
     ports:
       - "5432:5432"
     volumes:
@@ -16,7 +16,7 @@ services:
     networks:
       - sop-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sop_admin -d sop_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sop_admin} -d ${POSTGRES_DB:-sop_db}"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -39,8 +39,8 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: sop_admin
-      MINIO_ROOT_PASSWORD: changeme123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-sop_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -55,16 +55,16 @@ services:
     restart: unless-stopped
     command: start-dev
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin123
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/sop_db
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-sop_db}
       KC_HOSTNAME_STRICT_HTTPS: "false"
-      KC_HOSTNAME: 169.58.221.49
+      KC_HOSTNAME: ${HOST_IP:-169.58.221.49}
       KC_HOSTNAME_PORT: 8080
       KC_HTTP_ENABLED: "true"
-      KC_DB_USERNAME: sop_admin
-      KC_DB_PASSWORD: changeme
+      KC_DB_USERNAME: ${POSTGRES_USER:-sop_admin}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "8080:8080"
     depends_on:
@@ -155,11 +155,11 @@ services:
       - "55000:55000"
     environment:
       - INDEXER_URL=https://wazuh-indexer:9200
-      - INDEXER_USERNAME=admin
-      - INDEXER_PASSWORD=SecretPassword1
+      - INDEXER_USERNAME=${WAZUH_INDEXER_USER:-admin}
+      - INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD}
       - FILEBEAT_SSL_VERIFICATION_MODE=none
-      - API_USERNAME=wazuh
-      - API_PASSWORD=WazuhApi123!
+      - API_USERNAME=${WAZUH_API_USER:-wazuh}
+      - API_PASSWORD=${WAZUH_API_PASSWORD}
     volumes:
       - wazuh_certs:/wazuh-certs-src:ro
     entrypoint: ["/bin/bash", "-c", "mkdir -p /etc/filebeat/certs && cp /wazuh-certs-src/* /etc/filebeat/certs/ && rm -f /etc/services.d/filebeat/run && touch /etc/services.d/filebeat/down && exec /init"]
@@ -259,17 +259,18 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://sop_admin:changeme@postgres:5432/sop_db
-      - KEYCLOAK_URL=http://169.58.221.49:8080
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-sop_admin}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sop_db}
+      - KEYCLOAK_URL=http://${HOST_IP:-169.58.221.49}:8080
       - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
       - OLLAMA_URL=http://host.docker.internal:11434
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4317}
+      - ENABLE_OTEL=${ENABLE_OTEL:-true}
       - WAZUH_API_URL=https://wazuh-manager:55000
-      - WAZUH_API_USER=wazuh
-      - WAZUH_API_PASSWORD=WazuhApi123!
+      - WAZUH_API_USER=${WAZUH_API_USER:-wazuh}
+      - WAZUH_API_PASSWORD=${WAZUH_API_PASSWORD}
       - WAZUH_INDEXER_URL=https://wazuh.indexer:9200
-      - WAZUH_INDEXER_USER=admin
-      - WAZUH_INDEXER_PASSWORD=SecretPassword1
+      - WAZUH_INDEXER_USER=${WAZUH_INDEXER_USER:-admin}
+      - WAZUH_INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD}
     ports:
       - "8000:8000"
     extra_hosts:
@@ -339,8 +340,8 @@ services:
     container_name: sop-grafana
     restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
     ports:
       - "3002:3000"
     volumes:
@@ -359,14 +360,15 @@ services:
     ports:
       - "5678:5678"
     environment:
-      - N8N_HOST=localhost
+      - N8N_HOST=${N8N_HOST:-localhost}
       - N8N_PORT=5678
       - N8N_SECURE_COOKIE=false
       - N8N_PROTOCOL=http
       - GENERIC_TIMEZONE=Asia/Karachi
       - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=changeme123
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-}
     volumes:
       - n8n_data:/home/node/.n8n
     networks:

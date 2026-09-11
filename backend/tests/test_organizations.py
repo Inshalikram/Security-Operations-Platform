@@ -1,5 +1,8 @@
+import uuid
+
 def test_create_and_list_organization(client):
-    payload = {"name": "Acme Corp", "description": "Test tenant"}
+    unique_name = f"Acme Corp {uuid.uuid4().hex[:6]}"
+    payload = {"name": unique_name, "description": "Test tenant"}
     create_response = client.post("/organizations", json=payload)
     assert create_response.status_code == 200
     created = create_response.json()
@@ -8,15 +11,16 @@ def test_create_and_list_organization(client):
     list_response = client.get("/organizations")
     assert list_response.status_code == 200
     orgs = list_response.json()
-    assert any(o["name"] == "Acme Corp" for o in orgs)
+    assert any(o["name"] == unique_name for o in orgs)
 
 
 def test_create_organization_without_description(client):
-    response = client.post("/organizations", json={"name": "NoDescCorp"})
+    unique_name = f"NoDescCorp {uuid.uuid4().hex[:6]}"
+    response = client.post("/organizations", json={"name": unique_name})
     assert response.status_code == 200
 
     list_response = client.get("/organizations")
-    match = next(o for o in list_response.json() if o["name"] == "NoDescCorp")
+    match = next(o for o in list_response.json() if o["name"] == unique_name)
     assert match["description"] is None
 
 
