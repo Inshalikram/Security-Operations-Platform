@@ -1,6 +1,7 @@
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List
 import os
+from policy_engine import TOOL_PERMISSIONS, check_policy, PolicyViolation
 
 # ═══════════════════════════════════════════
 # AGENT 1: Threat Hunting Agent
@@ -62,6 +63,7 @@ def build_threat_hunting_agent():
     return graph.compile()
 
 threat_hunting_agent = build_threat_hunting_agent()
+threat_hunting_agent.tool_permissions = TOOL_PERMISSIONS["threat_hunt_agent"]
 
 def run_threat_hunt(ip_address: str):
     initial_state = {
@@ -189,6 +191,7 @@ def build_triage_agent():
     return graph.compile()
 
 triage_agent = build_triage_agent()
+triage_agent.tool_permissions = TOOL_PERMISSIONS["triage_agent"]
 
 def run_triage(ip_address: str):
     initial_state = {
@@ -281,6 +284,7 @@ def build_malware_agent():
     return graph.compile()
 
 malware_agent = build_malware_agent()
+malware_agent.tool_permissions = TOOL_PERMISSIONS["malware_agent"]
 
 def run_malware_investigation(file_hash: str = None, filename: str = None, url: str = None):
     initial_state = {
@@ -372,6 +376,7 @@ def build_exec_reporting_agent():
     return graph.compile()
 
 exec_reporting_agent = build_exec_reporting_agent()
+exec_reporting_agent.tool_permissions = TOOL_PERMISSIONS["exec_report_agent"]
 
 def run_exec_report(period: str = "weekly"):
     initial_state = {

@@ -4,7 +4,7 @@ import ipaddress
 import logging
 import requests
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, text, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
@@ -158,6 +158,41 @@ class AgentAction(Base):
     decided_at = Column(DateTime, nullable=True)
     executed_at = Column(DateTime, nullable=True)
     result = Column(JSON, nullable=True)
+
+
+# ── Pending Approvals table: destructive operations intercepted for human review ──
+class PendingApproval(Base):
+    __tablename__ = "pending_approvals"
+    id = Column(Integer, primary_key=True, index=True)
+    agent_name = Column(String, nullable=False)
+    action_name = Column(String, nullable=False)
+    target = Column(String, nullable=True)
+    params = Column(JSON, nullable=True)
+    risk_score = Column(Float, default=0.85)
+    confidence = Column(Float, default=1.0)
+    status = Column(String, default="pending")  # pending, approved, rejected, executed
+    reasoning = Column(String, nullable=True)
+    requested_at = Column(DateTime, default=datetime.utcnow)
+    decided_by = Column(String, nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+    result = Column(JSON, nullable=True)
+
+
+# ── Agent Audit Log table: complete lifecycle log of every agent action and tool call ──
+class AgentAuditLog(Base):
+    __tablename__ = "agent_audit_log"
+    id = Column(Integer, primary_key=True, index=True)
+    agent_name = Column(String, nullable=False)
+    tool_name = Column(String, nullable=False)
+    tool_input = Column(JSON, nullable=True)
+    decision = Column(String, nullable=False)  # executed, queued_for_approval, denied, approved, rejected
+    risk_score = Column(Float, default=0.0)
+    confidence = Column(Float, default=1.0)
+    reasoning = Column(String, nullable=True)
+    approver = Column(String, nullable=True)
+    result = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ── Dead-letter queue — failed external writes (TheHive case creation, etc.) land here
@@ -1158,12 +1193,27 @@ def get_report_download_url(filename: str, user=Depends(verify_token)):
 @app.get("/agents/pending-approvals")
 def list_pending_approvals(user=Depends(verify_token)):
     db = SessionLocal()
-    pending = db.query(AgentAction).filter(AgentAction.status == "pending").order_by(AgentAction.requested_at.desc()).all()
+    pending = db.query(PendingApproval).filter(PendingApproval.status == "pending").order_by(PendingApproval.requested_at.desc()).all()
+    if not pending:
+        pending_legacy = db.query(AgentAction).filter(AgentAction.status == "pending").order_by(AgentAction.requested_at.desc()).all()
+        db.close()
+        return [
+            {
+                "id": a.id, "agent_name": a.agent_name, "action_name": a.action_name,
+                "target": a.target, "reasoning": a.reasoning,
+                "risk_score": 0.85,
+                "confidence": float(a.confidence) if a.confidence else 1.0,
+                "requested_at": a.requested_at.isoformat() if a.requested_at else None
+            } for a in pending_legacy
+        ]
     db.close()
     return [
         {
             "id": a.id, "agent_name": a.agent_name, "action_name": a.action_name,
-            "target": a.target, "reasoning": a.reasoning, "requested_at": a.requested_at.isoformat()
+            "target": a.target, "reasoning": a.reasoning,
+            "risk_score": a.risk_score,
+            "confidence": a.confidence,
+            "requested_at": a.requested_at.isoformat() if a.requested_at else None
         } for a in pending
     ]
 
@@ -1189,18 +1239,32 @@ def reject_pending_action(action_id: int, reason: str = "", user=Depends(require
 @app.get("/agents/audit-log")
 def get_agent_audit_log(user=Depends(verify_token)):
     db = SessionLocal()
-    records = db.query(AgentAction).order_by(AgentAction.requested_at.desc()).limit(100).all()
+    records = db.query(AgentAuditLog).order_by(AgentAuditLog.created_at.desc()).limit(100).all()
+    if not records:
+        legacy = db.query(AgentAction).order_by(AgentAction.requested_at.desc()).limit(100).all()
+        db.close()
+        return [
+            {
+                "id": a.id, "agent_name": a.agent_name, "tool_name": a.action_name,
+                "action_name": a.action_name, "target": a.target, "status": a.status,
+                "decision": a.status, "confidence": float(a.confidence) if a.confidence else 1.0,
+                "risk_score": 0.85 if a.status in ("pending", "executed") else 0.1,
+                "reasoning": a.reasoning, "requested_at": a.requested_at.isoformat() if a.requested_at else None,
+                "decided_by": a.decided_by, "created_at": a.requested_at.isoformat() if a.requested_at else None,
+                "result": a.result
+            } for a in legacy
+        ]
     db.close()
     return [
         {
-            "id": a.id, "agent_name": a.agent_name, "action_name": a.action_name,
-            "target": a.target, "status": a.status, "confidence": a.confidence,
-            "reasoning": a.reasoning, "requested_at": a.requested_at.isoformat(),
-            "decided_by": a.decided_by,
-            "decided_at": a.decided_at.isoformat() if a.decided_at else None,
-            "executed_at": a.executed_at.isoformat() if a.executed_at else None,
-            "result": a.result
-        } for a in records
+            "id": r.id, "agent_name": r.agent_name, "tool_name": r.tool_name,
+            "action_name": r.tool_name, "tool_input": r.tool_input, "decision": r.decision,
+            "status": r.decision, "risk_score": r.risk_score, "confidence": r.confidence,
+            "reasoning": r.reasoning, "approver": r.approver, "decided_by": r.approver,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "requested_at": r.created_at.isoformat() if r.created_at else None,
+            "result": r.result
+        } for r in records
     ]
 
 
