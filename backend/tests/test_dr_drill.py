@@ -19,7 +19,24 @@ from dr_drill import (
     TABLE_MODELS,
     MockMinIOStorage
 )
-from main import SessionLocal, Asset, Organization
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from main import Base, Asset, Organization
+
+
+@pytest.fixture
+def isolated_dr_db(tmp_path):
+    """Provides a fully isolated SQLite database for destructive disaster recovery testing."""
+    db_file = tmp_path / "dr_drill_isolated.db"
+    test_engine = create_engine(f"sqlite:///{db_file}")
+    Base.metadata.create_all(bind=test_engine)
+    TestSession = sessionmaker(bind=test_engine)
+    session = TestSession()
+    try:
+        yield session
+    finally:
+        session.close()
+        test_engine.dispose()
 
 
 class TestDisasterRecoveryComponents:
@@ -75,10 +92,10 @@ class TestDisasterRecoveryComponents:
 class TestDisasterRecoveryDrillExecution:
     """Full drill execution, destruction simulation, restoration, and SLA verification."""
 
-    def test_full_dr_drill_and_integrity(self):
+    def test_full_dr_drill_and_integrity(self, isolated_dr_db, tmp_path):
         """Executes complete DR drill and verifies 100% data integrity and zero record loss."""
-        db = SessionLocal()
-        results = run_dr_drill(custom_db=db, verbose=False)
+        backup_dir = str(tmp_path / "dr_backup_1")
+        results = run_dr_drill(custom_db=isolated_dr_db, backup_dir=backup_dir, verbose=False)
 
         # 1. Overall verdict
         assert results["drill_metadata"]["overall_verdict"] == "SUCCESS"
@@ -97,10 +114,10 @@ class TestDisasterRecoveryDrillExecution:
             assert tbl["checksum_match"] is True, f"Table {tbl['table']} checksum mismatch"
             assert tbl["status"] == "PASS"
 
-    def test_rto_and_rpo_sla_compliance(self):
+    def test_rto_and_rpo_sla_compliance(self, isolated_dr_db, tmp_path):
         """Verifies measured RTO and RPO are strictly within SLA targets."""
-        db = SessionLocal()
-        results = run_dr_drill(custom_db=db, verbose=False)
+        backup_dir = str(tmp_path / "dr_backup_2")
+        results = run_dr_drill(custom_db=isolated_dr_db, backup_dir=backup_dir, verbose=False)
         m = results["measured_metrics"]
 
         # RTO must be <= 2 hours (7200 seconds)

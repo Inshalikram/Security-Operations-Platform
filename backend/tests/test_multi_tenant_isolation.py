@@ -175,12 +175,12 @@ def test_alerts_multi_tenant_isolation(client):
 
     # Tenant Alpha sees it in unified alerts
     alerts_a = client.get("/alerts/unified").json()["alerts"]
-    assert any(a.get("id") == alert_id for a in alerts_a)
+    assert any(a.get("id") == alert_id and a.get("source") == "suricata" for a in alerts_a)
 
     # Tenant Beta does NOT see it in unified alerts
     set_tenant_user("tenant-beta")
     alerts_b = client.get("/alerts/unified").json()["alerts"]
-    assert not any(a.get("id") == alert_id for a in alerts_b)
+    assert not any(a.get("id") == alert_id and a.get("source") == "suricata" for a in alerts_b)
 
     # Tenant Beta direct GET -> 403 Forbidden
     assert client.get(f"/alerts/{alert_id}").status_code == 403

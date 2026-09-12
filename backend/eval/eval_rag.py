@@ -23,8 +23,8 @@ from seed_knowledge import seed_sigma_rules, seed_mitre, seed_cves, seed_playboo
 def ensure_knowledge_base_seeded(db):
     """Ensures knowledge chunks exist before running evaluation."""
     count = db.query(KnowledgeChunk).count()
-    if count == 0:
-        print(f"Knowledge base is empty. Seeding initial chunks...")
+    if count < 10:
+        print(f"Knowledge base is empty or incomplete ({count} chunks). Seeding initial chunks...")
         seed_sigma_rules(db)
         seed_mitre(db)
         seed_cves(db)

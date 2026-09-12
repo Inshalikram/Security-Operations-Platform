@@ -216,9 +216,9 @@ class MockMinIOStorage:
         os.makedirs(self.storage_dir, exist_ok=True)
 
 
-def get_minio_store():
+def get_minio_store(storage_dir=None):
     """Returns live MinIO client handler or fallback MockMinIOStorage."""
-    return MockMinIOStorage()
+    return MockMinIOStorage(storage_dir=storage_dir)
 
 
 def get_keycloak_realm_config() -> dict:
@@ -262,7 +262,7 @@ def get_keycloak_realm_config() -> dict:
     }
 
 
-def run_dr_drill(custom_db=None, verbose=True) -> dict:
+def run_dr_drill(custom_db=None, backup_dir=None, verbose=True) -> dict:
     """
     Executes complete Disaster Recovery Drill:
     1. Snapshot & Backup
@@ -273,6 +273,8 @@ def run_dr_drill(custom_db=None, verbose=True) -> dict:
     6. Markdown Reporting
     """
     db = custom_db or SessionLocal()
+    target_backup_dir = backup_dir or BACKUP_DIR
+    os.makedirs(target_backup_dir, exist_ok=True)
     drill_start_wall = datetime.now(timezone.utc)
     t_start_perf = time.perf_counter()
 
@@ -296,7 +298,7 @@ def run_dr_drill(custom_db=None, verbose=True) -> dict:
     # ── Step 0: Ensure Baseline Data Exists ──
     t0 = time.perf_counter()
     seed_baseline_data_if_needed(db)
-    minio = get_minio_store()
+    minio = get_minio_store(storage_dir=os.path.join(target_backup_dir, "minio_live"))
     minio.put_object("reports", "incident-2026-001-summary.pdf", b"%PDF-1.4 Mock Incident Report Data for DR Drill")
     minio.put_object("evidence", "pcap_sample_cobalt_strike.bin", b"\xd4\xc3\xb2\xa1MockPcapNetworkStreamPayload")
     minio.put_object("evidence", "malware_hash_sha256.txt", b"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
@@ -338,13 +340,13 @@ def run_dr_drill(custom_db=None, verbose=True) -> dict:
         db_backup_records[tbl_name] = row_dicts
 
     db_dump_json = json.dumps(db_backup_records, indent=2, sort_keys=True)
-    db_dump_path = os.path.join(BACKUP_DIR, "sop_db_backup.json")
+    db_dump_path = os.path.join(target_backup_dir, "sop_db_backup.json")
     with open(db_dump_path, "w", encoding="utf-8") as f:
         f.write(db_dump_json)
     db_backup_hash = hash_string(db_dump_json)
 
     # 2b. MinIO Snapshot
-    minio_backup_path = os.path.join(BACKUP_DIR, "minio_backup.tar.gz")
+    minio_backup_path = os.path.join(target_backup_dir, "minio_backup.tar.gz")
     with tarfile.open(minio_backup_path, "w:gz") as tar:
         for obj_key, obj_meta in pre_minio_objects.items():
             tarinfo = tarfile.TarInfo(name=obj_key)
@@ -355,7 +357,7 @@ def run_dr_drill(custom_db=None, verbose=True) -> dict:
         minio_backup_hash = hash_bytes(f.read())
 
     # 2c. Keycloak Realm Export
-    kc_backup_path = os.path.join(BACKUP_DIR, "keycloak_realm_backup.json")
+    kc_backup_path = os.path.join(target_backup_dir, "keycloak_realm_backup.json")
     kc_dump_json = json.dumps(keycloak_realm, indent=2, sort_keys=True)
     with open(kc_backup_path, "w", encoding="utf-8") as f:
         f.write(kc_dump_json)
