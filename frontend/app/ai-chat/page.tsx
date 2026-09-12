@@ -6,7 +6,7 @@ import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Shield, Loader2, Sparkles, Bug, FileBarChart, ShieldAlert, Check, X } from "lucide-react"
+import { Shield, Loader2, Sparkles, Bug, FileBarChart, ShieldAlert, Check, X, Terminal, ChevronDown, ChevronUp, Activity, Target, AlertCircle } from "lucide-react"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 
@@ -20,12 +20,167 @@ const ACTIONS = [
 
 const PERIODS = ["weekly", "monthly", "quarterly"] as const
 
+function parseInline(text: string): React.ReactNode {
+  if (!text) return null
+  const regex = /(`[^`]+`|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)/g
+  const parts = text.split(regex)
+
+  return parts.map((part, index) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={index}
+          className="px-1.5 py-0.5 mx-0.5 rounded bg-violet-500/15 border border-violet-500/25 text-violet-300 font-mono text-xs"
+        >
+          {part.slice(1, -1)}
+        </code>
+      )
+    }
+    if (part.startsWith("***") && part.endsWith("***")) {
+      return (
+        <strong key={index} className="font-bold italic text-white">
+          {part.slice(3, -3)}
+        </strong>
+      )
+    }
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={index} className="font-semibold text-white">
+          {part.slice(2, -2)}
+        </strong>
+      )
+    }
+    if (part.startsWith("*") && part.endsWith("*")) {
+      return (
+        <em key={index} className="italic text-slate-200">
+          {part.slice(1, -1)}
+        </em>
+      )
+    }
+    return part
+  })
+}
+
+function FormattedReportView({ content }: { content: string }) {
+  if (!content) return null
+
+  const normalized = content.replace(/\\n/g, "\n").replace(/\r\n/g, "\n")
+  const lines = normalized.split("\n")
+
+  const elements: React.ReactNode[] = []
+  let currentList: { type: "bullet" | "number"; items: { text: string; num?: string; indent: number }[] } | null = null
+
+  function flushList() {
+    if (!currentList) return
+    const key = `list-${elements.length}`
+    if (currentList.type === "number") {
+      elements.push(
+        <div key={key} className="space-y-3 my-3">
+          {currentList.items.map((item, idx) => (
+            <div key={idx} className="flex items-start gap-3 pl-0.5">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-violet-500/20 border border-violet-500/30 text-xs font-semibold text-violet-300">
+                {item.num || idx + 1}
+              </span>
+              <div className="text-slate-300 leading-relaxed pt-0.5">{parseInline(item.text)}</div>
+            </div>
+          ))}
+        </div>
+      )
+    } else {
+      elements.push(
+        <ul key={key} className="space-y-2 my-2.5">
+          {currentList.items.map((item, idx) => (
+            <li
+              key={idx}
+              className={`flex items-start gap-2.5 text-slate-300 leading-relaxed ${
+                item.indent > 0 ? "ml-6" : "ml-2"
+              }`}
+            >
+              <span className="text-violet-400 mt-1.5 text-xs select-none">•</span>
+              <div className="flex-1">{parseInline(item.text)}</div>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+    currentList = null
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i]
+    const trimmed = rawLine.trim()
+
+    if (!trimmed) {
+      flushList()
+      continue
+    }
+
+    if (trimmed === "---" || trimmed === "***" || trimmed === "___") {
+      flushList()
+      elements.push(<hr key={`hr-${i}`} className="border-white/10 my-4" />)
+      continue
+    }
+
+    if (trimmed.startsWith("#")) {
+      flushList()
+      const level = trimmed.match(/^#+/)?.[0].length || 1
+      const title = trimmed.replace(/^#+\s*/, "")
+      elements.push(
+        <div key={`h-${i}`} className="mt-4 mb-2 pt-1 flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-violet-400 shadow-sm shadow-violet-400/50" />
+          <h4
+            className={`font-semibold text-white tracking-tight ${
+              level <= 2 ? "text-base" : "text-sm"
+            }`}
+          >
+            {parseInline(title)}
+          </h4>
+        </div>
+      )
+      continue
+    }
+
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/)
+    if (numMatch) {
+      if (!currentList || currentList.type !== "number") {
+        flushList()
+        currentList = { type: "number", items: [] }
+      }
+      currentList.items.push({ text: numMatch[2], num: numMatch[1], indent: 0 })
+      continue
+    }
+
+    const bulletMatch = rawLine.match(/^(\s*)[*•-]\s+(.*)$/)
+    if (bulletMatch) {
+      const indent = bulletMatch[1].length
+      if (!currentList || currentList.type !== "bullet") {
+        flushList()
+        currentList = { type: "bullet", items: [] }
+      }
+      currentList.items.push({ text: bulletMatch[2], indent })
+      continue
+    }
+
+    flushList()
+    elements.push(
+      <p key={`p-${i}`} className="text-slate-300 leading-relaxed my-2 text-sm">
+        {parseInline(trimmed)}
+      </p>
+    )
+  }
+
+  flushList()
+  return <div className="space-y-1">{elements}</div>
+}
+
 export default function AIChat() {
   const session = useSessionGuard()
   const [ip, setIp] = useState("")
   const [loadingKey, setLoadingKey] = useState<string | null>(null)
   const [result, setResult] = useState<any>(null)
   const [activeLabel, setActiveLabel] = useState("")
+
+  const [showRaw, setShowRaw] = useState(false)
 
   // Malware Investigation Agent inputs
   const [hash, setHash] = useState("")
@@ -44,6 +199,7 @@ export default function AIChat() {
     setLoadingKey(key)
     setActiveLabel(label)
     setResult(null)
+    setShowRaw(false)
     setPendingActionId(null)
     setDecisionStatus(null)
     try {
@@ -65,6 +221,7 @@ export default function AIChat() {
     setLoadingKey("malware")
     setActiveLabel("Malware Investigation Agent")
     setResult(null)
+    setShowRaw(false)
     setPendingActionId(null)
     setDecisionStatus(null)
     try {
@@ -90,6 +247,7 @@ export default function AIChat() {
     setLoadingKey(`exec-${period}`)
     setActiveLabel(`Executive Report (${period})`)
     setResult(null)
+    setShowRaw(false)
     setPendingActionId(null)
     setDecisionStatus(null)
     try {
@@ -279,10 +437,187 @@ export default function AIChat() {
                   <Loader2 className="h-5 w-5 animate-spin" />
                   Running {activeLabel}...
                 </div>
+              ) : result?.error ? (
+                <div className="flex items-start gap-3 p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-300">
+                  <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-sm">Execution Notice</p>
+                    <p className="text-xs text-rose-200/90 mt-1 leading-relaxed">{result.error}</p>
+                  </div>
+                </div>
               ) : (
-                <pre className="whitespace-pre-wrap text-sm text-slate-300 leading-relaxed font-sans">
-                  {JSON.stringify(result, null, 2)}
-                </pre>
+                <div className="space-y-4">
+                  {/* Meta Badges Header */}
+                  <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-white/5">
+                    {(result.ip || ip) && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-slate-300">
+                        <Target className="h-3 w-3 text-violet-400" />
+                        {result.ip || ip}
+                      </span>
+                    )}
+                    {(result.verdict || result.findings?.threat_intel?.overall_verdict) && (
+                      <span
+                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider border ${
+                          (result.verdict || result.findings?.threat_intel?.overall_verdict) === "malicious"
+                            ? "bg-rose-500/20 text-rose-300 border-rose-500/30 shadow-sm shadow-rose-500/10"
+                            : (result.verdict || result.findings?.threat_intel?.overall_verdict) === "suspicious"
+                            ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                            : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                        }`}
+                      >
+                        Verdict: {result.verdict || result.findings?.threat_intel?.overall_verdict}
+                      </span>
+                    )}
+                    {(result.severity || result.risk_level) && (
+                      <span
+                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                          ["Critical", "High"].includes(result.severity || result.risk_level)
+                            ? "bg-red-500/20 text-red-300 border-red-500/30"
+                            : ["Medium"].includes(result.severity || result.risk_level)
+                            ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                            : "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                        }`}
+                      >
+                        Severity: {result.severity || result.risk_level}
+                      </span>
+                    )}
+                    {result.assigned_to && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300">
+                        Assigned: {result.assigned_to}
+                      </span>
+                    )}
+                    {result.period && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300 capitalize">
+                        Period: {result.period}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Threat Intel Telemetry Quick Stats (If Available) */}
+                  {(() => {
+                    const ti = result.findings?.threat_intel?.details || result.details || result.vt_findings
+                    if (!ti || (!ti.abuseipdb && !ti.virustotal && !ti.otx && !ti.malicious_votes && !ti.malicious)) return null
+                    return (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 my-3">
+                        {ti.abuseipdb && (
+                          <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">AbuseIPDB</div>
+                            <div className="text-sm font-bold text-rose-300 mt-0.5">
+                              {ti.abuseipdb.abuse_confidence_score ?? 0}% Score
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              {ti.abuseipdb.total_reports ?? 0} Reports
+                            </div>
+                          </div>
+                        )}
+                        {(ti.virustotal || ti.malicious !== undefined) && (
+                          <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">VirusTotal</div>
+                            <div className="text-sm font-bold text-white mt-0.5">
+                              {ti.virustotal?.malicious_votes ?? ti.malicious ?? 0} Detections
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              Country: {ti.virustotal?.country || "Scanned"}
+                            </div>
+                          </div>
+                        )}
+                        {ti.otx && (
+                          <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">AlienVault OTX</div>
+                            <div className="text-sm font-bold text-amber-300 mt-0.5">
+                              {ti.otx.pulse_count ?? 0} Pulses
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              Threat Feeds
+                            </div>
+                          </div>
+                        )}
+                        {ti.shodan && (
+                          <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Shodan</div>
+                            <div className="text-sm font-bold text-white mt-0.5">
+                              {Array.isArray(ti.shodan.vulns) ? ti.shodan.vulns.length : 0} CVEs
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              {Array.isArray(ti.shodan.open_ports) ? `${ti.shodan.open_ports.length} Open Ports` : "Scanned"}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+
+                  {/* Agent Execution Trace Stepper */}
+                  {Array.isArray(result.steps_taken) && result.steps_taken.length > 0 && (
+                    <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3.5 my-3">
+                      <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <Activity className="h-3.5 w-3.5 text-violet-400" />
+                        Agent Execution Trace
+                      </div>
+                      <div className="space-y-1.5">
+                        {result.steps_taken.map((step: string, sIdx: number) => (
+                          <div key={sIdx} className="text-xs text-slate-300 flex items-center gap-2">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+                            <span>{step}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Main AI Report / Explanation Content (Clean Formatted Markdown, NO RAW QUOTES) */}
+                  {(() => {
+                    const mainText =
+                      result.investigation_report ||
+                      result.recommendations ||
+                      result.ai_explanation ||
+                      result.rag_explanation ||
+                      result.report ||
+                      result.reasoning ||
+                      result.containment_recommendation ||
+                      result.explanation ||
+                      result.mitre_mapping ||
+                      result.executive_summary
+
+                    if (mainText && typeof mainText === "string") {
+                      return <FormattedReportView content={mainText} />
+                    }
+
+                    // Fallback to clean key-value presentation if non-string
+                    return (
+                      <div className="space-y-2 py-2">
+                        {Object.entries(result).map(([k, v]) => {
+                          if (["ip", "verdict", "severity", "assigned_to", "steps_taken", "details", "findings", "proposed_action"].includes(k)) return null
+                          return (
+                            <div key={k} className="text-sm">
+                              <span className="text-violet-400 font-semibold uppercase text-xs tracking-wider mr-2">{k}:</span>
+                              <span className="text-slate-300">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
+
+                  {/* Technical JSON Toggle for Debugging/Advanced Analysis */}
+                  <div className="mt-6 pt-3 border-t border-white/5 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setShowRaw(!showRaw)}
+                      className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                      <Terminal className="h-3.5 w-3.5" />
+                      {showRaw ? "Hide Raw Technical JSON" : "View Raw Technical JSON"}
+                      {showRaw ? <ChevronUp className="h-3 w-3 ml-0.5" /> : <ChevronDown className="h-3 w-3 ml-0.5" />}
+                    </button>
+                  </div>
+
+                  {showRaw && (
+                    <pre className="mt-3 p-3 rounded-lg bg-black/50 border border-white/5 text-xs font-mono text-slate-400 overflow-x-auto leading-relaxed">
+                      {JSON.stringify(result, null, 2)}
+                    </pre>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
