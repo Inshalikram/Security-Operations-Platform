@@ -1759,7 +1759,7 @@ async def monitoring_watchdog():
                     pass
         except Exception as e:
             print("Monitoring watchdog error:", e)
-        await asyncio.sleep(15)
+        await asyncio.sleep(60)
 
 
 @app.on_event("startup")
