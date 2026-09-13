@@ -186,7 +186,7 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_NICE
-    command: ["suricata", "-i", "eth0", "--pcap-file-continuous"]
+    command: ["suricata", "-i", "eth0", "-i", "lo", "--pcap-file-continuous"]
     volumes:
       - suricata_logs:/var/log/suricata
       - ./suricata/rules:/var/lib/suricata/rules

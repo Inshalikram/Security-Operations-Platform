@@ -1759,7 +1759,7 @@ async def monitoring_watchdog():
                     pass
         except Exception as e:
             print("Monitoring watchdog error:", e)
-        await asyncio.sleep(60)
+        await asyncio.sleep(15)
 
 
 @app.on_event("startup")
@@ -1886,7 +1886,8 @@ def parse_suricata_alerts():
         already_exists = db.query(SuricataAlert).filter(
             SuricataAlert.signature == alert_data.get("signature"),
             SuricataAlert.src_ip == event.get("src_ip"),
-            SuricataAlert.dest_ip == event.get("dest_ip")
+            SuricataAlert.dest_ip == event.get("dest_ip"),
+            SuricataAlert.timestamp >= datetime.utcnow() - timedelta(minutes=1)
         ).first()
         if already_exists:
             continue
@@ -2083,7 +2084,8 @@ def parse_zeek_notices():
             already_exists = db.query(ZeekNotice).filter(
                 ZeekNotice.note_type == note_type,
                 ZeekNotice.message == message,
-                ZeekNotice.src_ip == src_ip
+                ZeekNotice.src_ip == src_ip,
+                ZeekNotice.timestamp >= datetime.utcnow() - timedelta(minutes=1)
             ).first()
             if already_exists:
                 continue
