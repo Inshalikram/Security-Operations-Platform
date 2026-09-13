@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Shield, AlertTriangle, ShieldAlert, Activity } from "lucide-react"
 import DashboardChart from "@/components/dashboard-chart"
+import FormattedTime from "@/components/formatted-time"
 
 type ThreatRecord = {
   ip: string
@@ -172,7 +173,7 @@ export default async function Dashboard() {
                     <TableHead className="text-slate-500">IP Address</TableHead>
                     <TableHead className="text-slate-500">Verdict</TableHead>
                     <TableHead className="text-slate-500">Signals</TableHead>
-                    <TableHead className="text-slate-500">Checked At</TableHead>
+                    <TableHead className="text-slate-500">Checked At (PKT)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -192,8 +193,8 @@ export default async function Dashboard() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-slate-400">{record.malicious_signals}</TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {new Date(record.checked_at).toLocaleString()}
+                        <TableCell className="text-sm text-slate-400 font-mono">
+                          <FormattedTime date={record.checked_at} />
                         </TableCell>
                       </TableRow>
                     ))

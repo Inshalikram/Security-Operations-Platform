@@ -6,6 +6,7 @@ import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { ShieldAlert, Loader2, Check, X, History } from "lucide-react"
+import FormattedTime from "@/components/formatted-time"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 
@@ -119,7 +120,7 @@ export default function PendingApprovalsPage() {
                     {a.agent_name} → {a.action_name}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Target: {a.target} · Requested: {new Date(a.requested_at).toLocaleString()}
+                    Target: {a.target} · Requested: <FormattedTime date={a.requested_at} />
                   </p>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full ${STATUS_COLORS.pending}`}>pending</span>
@@ -182,7 +183,7 @@ export default function PendingApprovalsPage() {
                         {a.agent_name} → {a.action_name}
                       </p>
                       <p className="text-xs text-slate-500 mt-1">
-                        Target: {a.target} · {new Date(a.requested_at).toLocaleString()}
+                        Target: {a.target} · <FormattedTime date={a.requested_at} />
                         {a.decided_by && ` · Decided by: ${a.decided_by}`}
                       </p>
                     </div>

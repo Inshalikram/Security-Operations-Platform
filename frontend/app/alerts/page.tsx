@@ -6,6 +6,7 @@ import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Bell, Loader2, Radio } from "lucide-react"
+import FormattedTime from "@/components/formatted-time"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 const WS_URL = process.env.NEXT_PUBLIC_API_URL
@@ -178,7 +179,7 @@ export default function AlertsPage() {
                 <p className="text-xs text-slate-500 mt-1">
                   {a.signature && <>{a.signature} · </>}
                   {a.malicious_signals !== undefined && <>{a.malicious_signals} signal(s) · </>}
-                  {a.checked_at ? new Date(a.checked_at).toLocaleString() : ""}
+                  {a.checked_at ? <FormattedTime date={a.checked_at} /> : ""}
                 </p>
               </div>
               <span className={`text-xs px-3 py-1 rounded-full border ${VERDICT_STYLES[a.verdict] || "bg-slate-500/20 text-slate-300 border-slate-500/30"}`}>

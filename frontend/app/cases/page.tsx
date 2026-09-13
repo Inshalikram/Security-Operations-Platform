@@ -6,6 +6,7 @@ import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FolderOpen, Loader2, AlertTriangle } from "lucide-react"
+import FormattedTime from "@/components/formatted-time"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 
@@ -108,7 +109,7 @@ export default function CasesPage() {
               </div>
               <div className="flex items-center justify-between text-xs text-slate-500">
                 <span>Status: {c.status || "Open"}</span>
-                <span>{c.created_at ? new Date(c.created_at).toLocaleString() : ""}</span>
+                <span>{c.created_at ? <FormattedTime date={c.created_at} /> : ""}</span>
               </div>
             </CardContent>
           </Card>

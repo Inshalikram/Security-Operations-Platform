@@ -6,6 +6,7 @@ import { useSessionGuard } from "@/lib/use-session-guard"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Radio, Loader2, CheckCircle2, XCircle } from "lucide-react"
+import FormattedTime from "@/components/formatted-time"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://169.58.221.49:8000"
 
@@ -121,8 +122,8 @@ export default function NetworkStatusPage() {
                       {data.core_processes_running !== undefined && (
                         <p className="text-slate-300">Core processes running: <span className="text-white font-medium">{data.core_processes_running}</span></p>
                       )}
-                      {data.last_alert_at && <p className="text-slate-500 text-xs">Last alert: {new Date(data.last_alert_at).toLocaleString()}</p>}
-                      {data.last_notice_at && <p className="text-slate-500 text-xs">Last notice: {new Date(data.last_notice_at).toLocaleString()}</p>}
+                      {data.last_alert_at && <p className="text-slate-500 text-xs">Last alert: <FormattedTime date={data.last_alert_at} /></p>}
+                      {data.last_notice_at && <p className="text-slate-500 text-xs">Last notice: <FormattedTime date={data.last_notice_at} /></p>}
                       {data.detail && <p className="text-slate-500 text-xs">{data.detail}</p>}
                       {data.error && <p className="text-rose-400 text-xs">{data.error}</p>}
                     </CardContent>
