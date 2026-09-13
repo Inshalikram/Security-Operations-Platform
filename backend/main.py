@@ -1693,61 +1693,70 @@ def fetch_wazuh_alerts():
 # Every 60s: ingests new Suricata/Zeek/Falco log data + new Wazuh alerts into Postgres,
 # auto-enriches any IPs seen in those alerts via threat-intel APIs, and raises a
 # SystemAlert if any tool is silent/unhealthy (with a 30-min per-tool cooldown to avoid spam). ──
+def _sync_watchdog_step():
+    new_broadcasts = []
+    try:
+        parse_suricata_alerts()
+        parse_zeek_notices()
+        parse_falco_events()
+
+        db = SessionLocal()
+        wazuh_ips_to_enrich = []   # ── auto-enrichment: Wazuh alert IPs ──
+        for a in fetch_wazuh_alerts():
+            rule_desc = a.get("rule", {}).get("description", "Wazuh alert")
+            already_exists = db.query(SystemAlert).filter(
+                SystemAlert.tool == "wazuh", SystemAlert.message == rule_desc,
+                SystemAlert.timestamp >= datetime.utcnow() - timedelta(minutes=5)
+            ).first()
+            if not already_exists:
+                db.add(SystemAlert(tool="wazuh", message=rule_desc, severity="critical"))
+                wazuh_ip = a.get("data", {}).get("srcip") or a.get("agent", {}).get("ip")
+                if wazuh_ip:
+                    wazuh_ips_to_enrich.append(wazuh_ip)
+
+                new_broadcasts.append({
+                    "type": "new_alert",
+                    "ip": wazuh_ip,
+                    "verdict": "malicious",
+                    "source": "wazuh",
+                    "signature": rule_desc,
+                    "checked_at": datetime.utcnow().isoformat()
+                })
+        db.commit()
+
+        # ── Naye Wazuh alerts ke IPs khud-b-khud VirusTotal/AbuseIPDB/OTX/Shodan se check karo ──
+        for ip in set(wazuh_ips_to_enrich):
+            enrich_ip_from_alert(ip, "wazuh")
+
+        checks = {
+            "suricata": os.path.exists(SURICATA_LOG_PATH) and os.path.getsize(SURICATA_LOG_PATH) > 0,
+            "zeek": os.path.exists(ZEEK_NOTICE_LOG_PATH) and os.path.getsize(ZEEK_NOTICE_LOG_PATH) > 0,
+            "falco": os.path.exists(FALCO_LOG_PATH) and os.path.getsize(FALCO_LOG_PATH) > 0,
+            "wazuh": check_wazuh_healthy(),
+        }
+        for tool, healthy in checks.items():
+            if not healthy:
+                recent = db.query(SystemAlert).filter(
+                    SystemAlert.tool == tool,
+                    SystemAlert.timestamp >= datetime.utcnow() - timedelta(minutes=30)
+                ).first()
+                if not recent:
+                    db.add(SystemAlert(tool=tool, message=f"{tool} monitoring tool is not reporting data", severity="warning"))
+                    db.commit()
+        db.close()
+    except Exception as e:
+        print("Monitoring watchdog sync step error:", e)
+    return new_broadcasts
+
 async def monitoring_watchdog():
     while True:
         try:
-            parse_suricata_alerts()
-            parse_zeek_notices()
-            parse_falco_events()
-
-            db = SessionLocal()
-            wazuh_ips_to_enrich = []   # ── auto-enrichment: Wazuh alert IPs ──
-            for a in fetch_wazuh_alerts():
-                rule_desc = a.get("rule", {}).get("description", "Wazuh alert")
-                already_exists = db.query(SystemAlert).filter(
-                    SystemAlert.tool == "wazuh", SystemAlert.message == rule_desc,
-                    SystemAlert.timestamp >= datetime.utcnow() - timedelta(minutes=5)
-                ).first()
-                if not already_exists:
-                    db.add(SystemAlert(tool="wazuh", message=rule_desc, severity="critical"))
-                    wazuh_ip = a.get("data", {}).get("srcip") or a.get("agent", {}).get("ip")
-                    if wazuh_ip:
-                        wazuh_ips_to_enrich.append(wazuh_ip)
-
-                    # ── Broadcast to WebSocket clients so it shows live on the Alerts page ──
-                    try:
-                        await manager.broadcast({
-                            "type": "new_alert",
-                            "ip": wazuh_ip,
-                            "verdict": "malicious",
-                            "source": "wazuh",
-                            "signature": rule_desc,
-                            "checked_at": datetime.utcnow().isoformat()
-                        })
-                    except Exception:
-                        pass
-            db.commit()
-
-            # ── Naye Wazuh alerts ke IPs khud-b-khud VirusTotal/AbuseIPDB/OTX/Shodan se check karo ──
-            for ip in set(wazuh_ips_to_enrich):
-                enrich_ip_from_alert(ip, "wazuh")
-
-            checks = {
-                "suricata": os.path.exists(SURICATA_LOG_PATH) and os.path.getsize(SURICATA_LOG_PATH) > 0,
-                "zeek": os.path.exists(ZEEK_NOTICE_LOG_PATH) and os.path.getsize(ZEEK_NOTICE_LOG_PATH) > 0,
-                "falco": os.path.exists(FALCO_LOG_PATH) and os.path.getsize(FALCO_LOG_PATH) > 0,
-                "wazuh": check_wazuh_healthy(),
-            }
-            for tool, healthy in checks.items():
-                if not healthy:
-                    recent = db.query(SystemAlert).filter(
-                        SystemAlert.tool == tool,
-                        SystemAlert.timestamp >= datetime.utcnow() - timedelta(minutes=30)
-                    ).first()
-                    if not recent:
-                        db.add(SystemAlert(tool=tool, message=f"{tool} monitoring tool is not reporting data", severity="warning"))
-                        db.commit()
-            db.close()
+            alerts_to_broadcast = await asyncio.to_thread(_sync_watchdog_step)
+            for b in alerts_to_broadcast:
+                try:
+                    await manager.broadcast(b)
+                except Exception:
+                    pass
         except Exception as e:
             print("Monitoring watchdog error:", e)
         await asyncio.sleep(60)

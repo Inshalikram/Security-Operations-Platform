@@ -162,7 +162,7 @@ services:
       - API_PASSWORD=${WAZUH_API_PASSWORD:-WazuhApi123!}
     volumes:
       - wazuh_certs:/wazuh-certs-src:ro
-    entrypoint: ["/bin/bash", "-c", "mkdir -p /etc/filebeat/certs && cp /wazuh-certs-src/* /etc/filebeat/certs/ && rm -f /etc/services.d/filebeat/run && touch /etc/services.d/filebeat/down && exec /init"]
+    entrypoint: ["/bin/bash", "-c", "mkdir -p /etc/filebeat/certs && cp /wazuh-certs-src/* /etc/filebeat/certs/ && exec /init"]
     depends_on:
       - wazuh-certs-generator
       - wazuh-indexer

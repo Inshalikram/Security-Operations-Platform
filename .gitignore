@@ -42,5 +42,6 @@ Thumbs.db
 # Reports & logs
 reports/
 *.log
+*.db
 gitleaks_report.json
 scripts/dr_backups/
