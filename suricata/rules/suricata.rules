@@ -1,13 +1,55 @@
+# ==============================================================================
+# SOC PLATFORM - SURICATA NIDS COMPREHENSIVE INTRUSION DETECTION RULES
+# Protects All Services: SSH, Web, MinIO, n8n, Keycloak, Postgres, Redis, ES
+# ==============================================================================
+
+# 1. ICMP Reconnaissance / Ping Sweep
 alert icmp any any -> any any (msg:"ICMP Ping Detected"; itype:8; threshold:type limit, track by_src, count 1, seconds 60; sid:1000001; rev:2;)
 
+# 2. Host SSH Brute Force (Port 22)
 alert tcp any any -> any 22 (msg:"SSH Brute Force Attempt"; flags:S; threshold:type both, track by_src, count 5, seconds 60; sid:1000002; rev:1;)
 
-alert http any any -> any any (msg:"Suspicious User-Agent - sqlmap"; content:"sqlmap"; http_user_agent; sid:1000003; rev:1;)
+# 3. Web Intrusion: SQL Injection Probe (sqlmap)
+alert http any any -> any any (msg:"Suspicious User-Agent - sqlmap"; content:"sqlmap"; nocase; http_user_agent; sid:1000003; rev:2;)
 
+# 4. Network Reconnaissance: Rapid Port Scan
 alert tcp any any -> any any (msg:"Possible Port Scan Detected"; flags:S; threshold:type both, track by_src, count 20, seconds 10; sid:1000004; rev:1;)
 
+# 5. DNS Tunneling: Suspicious Long Query
 alert dns any any -> any any (msg:"Suspicious Long DNS Query - possible tunneling"; dns_query; content:"."; pcre:"/^.{100,}$/"; sid:1000005; rev:1;)
 
-alert http any any -> any any (msg:"Suspicious Scanner - Nikto Web Scanner"; content:"Nikto"; http_user_agent; sid:1000006; rev:1;)
+# 6. Web Vulnerability Scanner: Nikto Web Scanner
+alert http any any -> any any (msg:"Suspicious Scanner - Nikto Web Scanner"; content:"Nikto"; nocase; http_user_agent; sid:1000006; rev:2;)
 
-alert http any any -> any any (msg:"Directory Traversal Attack Detected"; content:"etc/passwd"; sid:1000007; rev:1;)
+# 7. Web Exploitation: Directory Traversal (/etc/passwd)
+alert http any any -> any any (msg:"Directory Traversal Attack Detected"; content:"etc/passwd"; nocase; sid:1000007; rev:2;)
+
+# 8. MinIO Storage & Console Brute Force / Connection Flood (Ports 9000, 9001)
+alert tcp any any -> any [9000,9001] (msg:"MinIO Storage & Console Brute Force Attempt"; flags:S; threshold:type both, track by_src, count 6, seconds 60; sid:1000008; rev:1;)
+
+# 9. n8n Automation Service Brute Force / Connection Burst (Port 5678)
+alert tcp any any -> any 5678 (msg:"n8n Automation Service Brute Force Attempt"; flags:S; threshold:type both, track by_src, count 6, seconds 60; sid:1000009; rev:1;)
+
+# 10. Keycloak IAM / Auth Service Brute Force (Port 8080)
+alert tcp any any -> any 8080 (msg:"Keycloak Auth Service Brute Force Attempt"; flags:S; threshold:type both, track by_src, count 6, seconds 60; sid:1000010; rev:1;)
+
+# 11. PostgreSQL Database Intrusion / Unauthorized Probe (Port 5432)
+alert tcp any any -> any 5432 (msg:"PostgreSQL Database Intrusion Probe"; flags:S; threshold:type both, track by_src, count 3, seconds 60; sid:1000011; rev:1;)
+
+# 12. Redis In-Memory Database Intrusion Probe (Port 6379)
+alert tcp any any -> any 6379 (msg:"Redis In-Memory Database Intrusion Probe"; flags:S; threshold:type both, track by_src, count 3, seconds 60; sid:1000012; rev:1;)
+
+# 13. Elasticsearch Search Engine / SIEM Unauthorized Probe (Port 9200)
+alert tcp any any -> any 9200 (msg:"Elasticsearch Unauthorized Intrusion Probe"; flags:S; threshold:type both, track by_src, count 3, seconds 60; sid:1000013; rev:1;)
+
+# 14. Web Sensitive Information Leak Probe (.env / .git)
+alert http any any -> any any (msg:"Sensitive Information Snooping (.env / .git)"; content:".env"; nocase; sid:1000014; rev:1;)
+
+# 15. OS Command Injection Probe (whoami / shell)
+alert http any any -> any any (msg:"OS Command Injection Probe (whoami / shell)"; content:"whoami"; nocase; sid:1000015; rev:1;)
+
+# 16. Web Cross-Site Scripting (XSS) Probe
+alert http any any -> any any (msg:"Web Cross-Site Scripting (XSS) Probe"; content:"<script>"; nocase; sid:1000016; rev:1;)
+
+# 17. Traefik Web Gateway Rapid Connection Burst / DDoS Probe (Ports 80, 443)
+alert tcp any any -> any [80,443] (msg:"Web Gateway (Traefik) Connection Burst / Brute Force"; flags:S; threshold:type both, track by_src, count 25, seconds 15; sid:1000017; rev:1;)
