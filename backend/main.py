@@ -1611,11 +1611,17 @@ def parse_falco_events():
         output = event.get("output", "")
         if not rule:
             continue
+
+        # ── Smart deduplication: Generic container events (e.g. Read sensitive file untrusted)
+        # only ingest once per 60 minutes so they don't flood the SOC feed ──
+        window_minutes = 60 if rule == "Read sensitive file untrusted" else 15
         already_exists = db.query(FalcoEvent).filter(
-            FalcoEvent.rule == rule, FalcoEvent.output == output
+            FalcoEvent.rule == rule,
+            FalcoEvent.timestamp >= datetime.utcnow() - timedelta(minutes=window_minutes)
         ).first()
         if already_exists:
             continue
+
         db.add(FalcoEvent(rule=rule, priority=event.get("priority", "warning"), output=output, raw_event=event))
         new_events += 1
 
@@ -1850,7 +1856,17 @@ def get_unified_alerts(
         })
 
     unified.sort(key=lambda x: x["timestamp"], reverse=True)
-    return {"count": len(unified), "alerts": unified[:50]}
+
+    # ── Deduplicate repetitive alert signatures to prevent noise from drowning out other alerts ──
+    diverse_unified = []
+    seen_sigs = {}
+    for item in unified:
+        sig = f"{item.get('source')}:{item.get('title')}"
+        seen_sigs[sig] = seen_sigs.get(sig, 0) + 1
+        if seen_sigs[sig] <= 3:  # Max 3 occurrences of identical alert signature
+            diverse_unified.append(item)
+
+    return {"count": len(diverse_unified), "alerts": diverse_unified[:50]}
 
 # ── Suricata alert ingestion — model already defined above (near Base.metadata.create_all()) ──
 SURICATA_LOG_PATH = "/var/log/suricata/eve.json"

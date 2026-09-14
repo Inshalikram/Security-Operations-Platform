@@ -90,32 +90,55 @@ export default function AlertsPage() {
       })
       .finally(() => setLoading(false))
 
-    // Live updates over WebSocket
-    const ws = new WebSocket(`${WS_URL}?token=${session.accessToken}`)
-    ws.onopen = () => setConnected(true)
-    ws.onclose = () => setConnected(false)
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      if (data.type === "new_alert") {
-        const rawSource = data.source || "threat-intel"
-        const { source, verdict } = normalizeAlert(rawSource, data.verdict, data.signature)
-        if (shouldShow(source, verdict)) {
-          setAlerts((prev) => [
-            {
-              ip_address: data.ip,
-              verdict,
-              source,
-              signature: data.signature,
-              malicious_signals: data.malicious_signals,
-              checked_at: data.checked_at || new Date().toISOString(),
-            },
-            ...prev,
-          ])
+    // Live updates over WebSocket with auto-reconnect
+    let reconnectTimeout: any = null
+    let active = true
+
+    function connectWs() {
+      if (!active || !session?.accessToken) return
+      const ws = new WebSocket(`${WS_URL}?token=${session.accessToken}`)
+      wsRef.current = ws
+
+      ws.onopen = () => setConnected(true)
+      ws.onclose = () => {
+        setConnected(false)
+        if (active) {
+          reconnectTimeout = setTimeout(connectWs, 3000)
         }
       }
+      ws.onerror = () => ws.close()
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === "new_alert") {
+            const rawSource = data.source || "threat-intel"
+            const { source, verdict } = normalizeAlert(rawSource, data.verdict, data.signature)
+            if (shouldShow(source, verdict)) {
+              setAlerts((prev) => [
+                {
+                  ip_address: data.ip,
+                  verdict,
+                  source,
+                  signature: data.signature,
+                  malicious_signals: data.malicious_signals,
+                  checked_at: data.checked_at || new Date().toISOString(),
+                },
+                ...prev,
+              ])
+            }
+          }
+        } catch {}
+      }
     }
-    wsRef.current = ws
-    return () => ws.close()
+
+    connectWs()
+
+    return () => {
+      active = false
+      if (reconnectTimeout) clearTimeout(reconnectTimeout)
+      if (wsRef.current) wsRef.current.close()
+    }
   }, [session])
 
   return (
