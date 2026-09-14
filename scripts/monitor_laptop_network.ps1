@@ -202,8 +202,59 @@ function Inspect-NetworkConnections {
     }
 }
 
+function Inspect-DefenderBlocks {
+    try {
+        $recentEvents = Get-WinEvent -FilterHashtable @{
+            LogName = 'Microsoft-Windows-Windows Defender/Operational'
+            Id = 1125, 1126, 1116, 1117
+            StartTime = (Get-Date).AddMinutes(-5)
+        } -ErrorAction SilentlyContinue
+
+        foreach ($evt in $recentEvents) {
+            $dedupKey = "defender-$($evt.Id)-$($evt.RecordId)"
+            if ($global:AlertDeduplication[$dedupKey]) { continue }
+            $global:AlertDeduplication[$dedupKey] = Get-Date
+
+            $msg = $evt.Message
+            $target = "Unknown"
+            $proc = "Unknown"
+            $malware = ""
+
+            if ($msg -match 'Destination:\s*(.+)') { $target = $matches[1].Trim() }
+            if ($msg -match 'Process Name:\s*(.+)') { $proc = [System.IO.Path]::GetFileName($matches[1].Trim()) }
+            if ($msg -match 'Name:\s*(.+)') { $malware = $matches[1].Trim() }
+
+            $isWebBlock = $evt.Id -in @(1125, 1126)
+            $title = if ($isWebBlock) {
+                "Malicious URL Blocked: $target ($proc)"
+            } else {
+                "Malware Quarantined: $malware ($proc)"
+            }
+
+            Write-Host ""
+            Write-Host "[!] DEFENDER THREAT DETECTED ON LAPTOP!" -ForegroundColor Red
+            Write-Host "    -> Threat:  $title" -ForegroundColor Yellow
+            Write-Host "    -> Target:  $target" -ForegroundColor Yellow
+
+            $backendPayload = @{
+                title = "Laptop Threat: $title"
+                alert_type = "laptop-network"
+                severity = "critical"
+                source_ip = "192.168.0.203"
+                dest_ip = if ($target -ne "Unknown") { $target } else { "Local Machine" }
+                detail = "Windows Defender Protection actively intercepted and mitigated threat from $proc. (Event ID: $($evt.Id))"
+            }
+            $socStatus = Send-SocAlert -AlertData $backendPayload
+            Write-Host "    -> SOC Backend Response: $socStatus" -ForegroundColor DarkGray
+        }
+    } catch {
+        # ignore event log access hiccups
+    }
+}
+
 # Run loop
 do {
+    Inspect-DefenderBlocks
     Inspect-NetworkConnections
     if ($Continuous) {
         Start-Sleep -Seconds $IntervalSeconds
