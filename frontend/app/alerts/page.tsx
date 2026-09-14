@@ -199,10 +199,10 @@ export default function AlertsPage() {
                       [{a.source}]
                     </span>
                   )}
-                  {a.ip_address || a.ip || "—"}
+                  {a.ip_address || a.ip || a.signature || "Security Alert"}
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
-                  {a.signature && <>{a.signature} · </>}
+                  {(a.ip_address || a.ip) && a.signature && <>{a.signature} · </>}
                   {a.malicious_signals !== undefined && <>{a.malicious_signals} signal(s) · </>}
                   {a.checked_at ? <FormattedTime date={a.checked_at} /> : ""}
                 </p>

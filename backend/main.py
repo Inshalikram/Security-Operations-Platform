@@ -1593,6 +1593,10 @@ def list_sigma_rules(user=Depends(verify_token)):
 FALCO_LOG_PATH = "/var/log/falco/falco.log"
 
 
+IGNORED_FALCO_RULES = {
+    "Read sensitive file untrusted",  # Routine cAdvisor / Prometheus metrics scraping from container /etc
+}
+
 # ── Falco event ingestion — parses Falco's JSON-lines log file ──
 def parse_falco_events():
     """Reads Falco's JSON-lines log, extracts new runtime security events, saves to DB."""
@@ -1609,7 +1613,7 @@ def parse_falco_events():
             continue
         rule = event.get("rule")
         output = event.get("output", "")
-        if not rule:
+        if not rule or rule in IGNORED_FALCO_RULES:
             continue
 
         raw_time = event.get("time")
