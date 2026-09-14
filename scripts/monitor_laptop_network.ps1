@@ -21,6 +21,8 @@ $alertLog = "$logDir\laptop_network_alerts.log"
 $SUSPICIOUS_PORTS = @(4444, 5555, 1337, 6667, 31337, 8888, 9999, 23, 21, 3389, 445, 135)
 $SUSPICIOUS_PROCS = @("powershell", "pwsh", "cmd", "certutil", "mshta", "cscript", "wscript", "rundll32", "regsvr32")
 $KNOWN_SAFE_IPS = @("127.0.0.1", "0.0.0.0", "::1")
+$SUSPICIOUS_IPS = @("198.51.100.23", "203.0.113.5", "185.220.101.5", "192.42.116.16", "185.156.73.54", "45.154.255.88")
+$global:AlertDeduplication = @{}
 
 Write-Host "============================================================================" -ForegroundColor Cyan
 Write-Host "  SOC PLATFORM - LAPTOP LIVE NETWORK TRAFFIC INSPECTOR AND SENSOR" -ForegroundColor Cyan
@@ -113,46 +115,61 @@ function Inspect-NetworkConnections {
             $threatReason = "Suspicious script engine ($procName) established outbound network socket to $remoteIp"
         }
 
-        # Rule 3: Inbound SMB/RPC probing from local or foreign network
-        if ($state -eq "Listen" -and $localPort -in @(445, 135, 3389)) {
-            # listening on sensitive ports
+        # Rule 4: Known Threat / Malicious IP matching
+        if ($remoteIp -in $SUSPICIOUS_IPS) {
+            $threatLevel = "High"
+            $threatReason = "Connection to known threat-intel IP ($remoteIp)"
+        }
+
+        # Rule 5: Browser connection to unusual non-web ports
+        if ($procName.ToLower() -in @("chrome", "msedge", "firefox", "brave") -and $remotePort -in $SUSPICIOUS_PORTS) {
+            $threatLevel = "High"
+            $threatReason = "Browser ($procName) established connection to suspicious port ($remotePort)"
         }
 
         if ($threatLevel -in @("High", "Critical")) {
+            $dedupKey = "$procName-$remoteIp-$remotePort"
+            $lastSent = $global:AlertDeduplication[$dedupKey]
+            $shouldAlert = ($null -eq $lastSent) -or ((Get-Date) - $lastSent).TotalMinutes -gt 3
+
             Write-Host ""
             Write-Host "[!] NETWORK THREAT DETECTED ON LAPTOP!" -ForegroundColor Red
             Write-Host "    -> Process:     $procName (PID: $($conn.OwningProcess))" -ForegroundColor Yellow
             Write-Host "    -> Connection:  $($conn.LocalAddress):$($localPort) -> $($remoteIp):$($remotePort)" -ForegroundColor Yellow
             Write-Host "    -> Reason:      $threatReason" -ForegroundColor Red
 
-            $alertPayload = @{
-                timestamp = (Get-Date).ToString("o")
-                source = "laptop-network"
-                agent_host = $env:COMPUTERNAME
-                process = $procName
-                pid = $conn.OwningProcess
-                local_ip = $conn.LocalAddress
-                local_port = $localPort
-                remote_ip = $remoteIp
-                remote_port = $remotePort
-                threat_level = $threatLevel
-                reason = $threatReason
-            }
+            if ($shouldAlert) {
+                $global:AlertDeduplication[$dedupKey] = Get-Date
 
-            $alertJson = $alertPayload | ConvertTo-Json -Compress
-            Add-Content -Path $alertLog -Value $alertJson -Encoding utf8
+                $alertPayload = @{
+                    timestamp = (Get-Date).ToString("o")
+                    source = "laptop-network"
+                    agent_host = $env:COMPUTERNAME
+                    process = $procName
+                    pid = $conn.OwningProcess
+                    local_ip = $conn.LocalAddress
+                    local_port = $localPort
+                    remote_ip = $remoteIp
+                    remote_port = $remotePort
+                    threat_level = $threatLevel
+                    reason = $threatReason
+                }
 
-            # Try reporting to SOC Backend
-            $backendPayload = @{
-                title = "Laptop Network Threat: $threatReason"
-                alert_type = "laptop-network"
-                severity = if ($threatLevel -eq "Critical") { "critical" } else { "high" }
-                source_ip = $conn.LocalAddress
-                dest_ip = $remoteIp
-                detail = "$procName connected to $($remoteIp):$($remotePort) - $threatReason"
+                $alertJson = $alertPayload | ConvertTo-Json -Compress
+                Add-Content -Path $alertLog -Value $alertJson -Encoding utf8
+
+                # Try reporting to SOC Backend
+                $backendPayload = @{
+                    title = "Laptop Network Threat: $threatReason"
+                    alert_type = "laptop-network"
+                    severity = if ($threatLevel -eq "Critical") { "critical" } else { "high" }
+                    source_ip = $conn.LocalAddress
+                    dest_ip = $remoteIp
+                    detail = "$procName connected to $($remoteIp):$($remotePort) - $threatReason"
+                }
+                $socStatus = Send-SocAlert -AlertData $backendPayload
+                Write-Host "    -> SOC Backend Response: $socStatus" -ForegroundColor DarkGray
             }
-            $socStatus = Send-SocAlert -AlertData $backendPayload
-            Write-Host "    -> SOC Backend Response: $socStatus" -ForegroundColor DarkGray
         }
 
         [PSCustomObject]@{
