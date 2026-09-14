@@ -207,10 +207,10 @@ function Inspect-DefenderBlocks {
         $recentEvents = Get-WinEvent -FilterHashtable @{
             LogName = 'Microsoft-Windows-Windows Defender/Operational'
             Id = 1125, 1126, 1116, 1117
-            StartTime = (Get-Date).AddMinutes(-5)
-        } -ErrorAction SilentlyContinue
+        } -MaxEvents 15 -ErrorAction SilentlyContinue
 
         foreach ($evt in $recentEvents) {
+            if ($evt.TimeCreated -lt (Get-Date).AddHours(-2)) { continue }
             $dedupKey = "defender-$($evt.Id)-$($evt.RecordId)"
             if ($global:AlertDeduplication[$dedupKey]) { continue }
             $global:AlertDeduplication[$dedupKey] = Get-Date
