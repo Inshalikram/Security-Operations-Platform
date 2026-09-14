@@ -34,19 +34,18 @@ def get_jwks(force_refresh: bool = False):
     return _jwks_cache
 
 def verify_token(
-    request: Optional[Request] = None,
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ):
     # ── 1. API key authentication for external sensors, laptop agents, and automated scripts ──
-    if request is not None:
-        api_key = request.headers.get("X-API-Key")
-        if api_key and api_key in API_KEYS:
-            return {
-                "preferred_username": "laptop_sensor",
-                "sub": "sensor-001",
-                "realm_access": {"roles": ["analyst", "admin"]},
-                "tenant_id": "default",
-            }
+    api_key = request.headers.get("X-API-Key")
+    if api_key and api_key in API_KEYS:
+        return {
+            "preferred_username": "laptop_sensor",
+            "sub": "sensor-001",
+            "realm_access": {"roles": ["analyst", "admin"]},
+            "tenant_id": "default",
+        }
 
     if credentials is None:
         raise HTTPException(status_code=401, detail="Not authenticated: Bearer token or X-API-Key required")
