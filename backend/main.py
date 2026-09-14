@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, text, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 from pydantic import BaseModel
 from typing import Optional
@@ -1612,32 +1612,55 @@ def parse_falco_events():
         if not rule:
             continue
 
-        # ── Smart deduplication: Generic container events (e.g. Read sensitive file untrusted)
-        # only ingest once per 60 minutes so they don't flood the SOC feed ──
-        window_minutes = 60 if rule == "Read sensitive file untrusted" else 15
+        raw_time = event.get("time")
+        event_dt = None
+        if raw_time:
+            try:
+                clean_time = raw_time.replace("Z", "+00:00")
+                if "." in clean_time:
+                    base, rest = clean_time.split(".", 1)
+                    tz_part = ""
+                    if "+" in rest:
+                        subsec, tz_part = rest.split("+", 1)
+                        tz_part = "+" + tz_part
+                    elif "-" in rest:
+                        subsec, tz_part = rest.split("-", 1)
+                        tz_part = "-" + tz_part
+                    else:
+                        subsec = rest
+                    clean_time = f"{base}.{subsec[:6]}{tz_part}"
+                dt = datetime.fromisoformat(clean_time)
+                event_dt = dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+            except Exception:
+                event_dt = None
+        if not event_dt:
+            event_dt = datetime.utcnow()
+
         already_exists = db.query(FalcoEvent).filter(
             FalcoEvent.rule == rule,
-            FalcoEvent.timestamp >= datetime.utcnow() - timedelta(minutes=window_minutes)
+            FalcoEvent.timestamp >= event_dt - timedelta(seconds=2),
+            FalcoEvent.timestamp <= event_dt + timedelta(seconds=2),
         ).first()
         if already_exists:
             continue
 
-        db.add(FalcoEvent(rule=rule, priority=event.get("priority", "warning"), output=output, raw_event=event))
+        db.add(FalcoEvent(rule=rule, priority=event.get("priority", "warning"), output=output, raw_event=event, timestamp=event_dt))
         new_events += 1
 
-        # ── Broadcast to WebSocket clients so it shows live on the Alerts page ──
-        try:
-            import asyncio as _asyncio
-            _asyncio.run(manager.broadcast({
-                "type": "new_alert",
-                "ip": None,
-                "verdict": "malicious" if event.get("priority") in ("Critical", "Emergency", "Alert") else "suspicious",
-                "source": "falco",
-                "signature": rule,
-                "checked_at": datetime.utcnow().isoformat()
-            }))
-        except Exception:
-            pass
+        # Broadcast only if the event actually occurred recently (within last 3 minutes)
+        if (datetime.utcnow() - event_dt) <= timedelta(minutes=3):
+            try:
+                import asyncio as _asyncio
+                _asyncio.run(manager.broadcast({
+                    "type": "new_alert",
+                    "ip": None,
+                    "verdict": "malicious" if event.get("priority") in ("Critical", "Emergency", "Alert") else "suspicious",
+                    "source": "falco",
+                    "signature": rule,
+                    "checked_at": event_dt.isoformat()
+                }))
+            except Exception:
+                pass
 
     db.commit()
     db.close()
@@ -1899,17 +1922,30 @@ def parse_suricata_alerts():
 
         alert_data = event.get("alert", {})
 
+        raw_ts = event.get("timestamp")
+        event_dt = None
+        if raw_ts:
+            try:
+                clean_ts = raw_ts.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(clean_ts)
+                event_dt = dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+            except Exception:
+                event_dt = None
+        if not event_dt:
+            event_dt = datetime.utcnow()
+
         already_exists = db.query(SuricataAlert).filter(
             SuricataAlert.signature == alert_data.get("signature"),
             SuricataAlert.src_ip == event.get("src_ip"),
             SuricataAlert.dest_ip == event.get("dest_ip"),
-            SuricataAlert.timestamp >= datetime.utcnow() - timedelta(minutes=1)
+            SuricataAlert.timestamp >= event_dt - timedelta(seconds=2),
+            SuricataAlert.timestamp <= event_dt + timedelta(seconds=2),
         ).first()
         if already_exists:
             continue
 
         record = SuricataAlert(
-            timestamp=datetime.utcnow(),
+            timestamp=event_dt,
             src_ip=event.get("src_ip"),
             dest_ip=event.get("dest_ip"),
             signature=alert_data.get("signature"),
@@ -1920,19 +1956,20 @@ def parse_suricata_alerts():
         new_alerts += 1
         SURICATA_ALERTS_INGESTED.inc()
 
-        # ── Broadcast to WebSocket clients so it shows live on the Alerts page ──
-        try:
-            import asyncio as _asyncio
-            _asyncio.run(manager.broadcast({
-                "type": "new_alert",
-                "ip": event.get("src_ip") or event.get("dest_ip"),
-                "verdict": "malicious" if (alert_data.get("severity") or 3) <= 2 else "suspicious",
-                "source": "suricata",
-                "signature": alert_data.get("signature"),
-                "checked_at": record.timestamp.isoformat()
-            }))
-        except Exception:
-            pass  # don't let broadcast failure break ingestion
+        # Only broadcast if this alert is fresh (within last 3 minutes)
+        if (datetime.utcnow() - event_dt) <= timedelta(minutes=3):
+            try:
+                import asyncio as _asyncio
+                _asyncio.run(manager.broadcast({
+                    "type": "new_alert",
+                    "ip": event.get("src_ip") or event.get("dest_ip"),
+                    "verdict": "malicious" if (alert_data.get("severity") or 3) <= 2 else "suspicious",
+                    "source": "suricata",
+                    "signature": alert_data.get("signature"),
+                    "checked_at": record.timestamp.isoformat()
+                }))
+            except Exception:
+                pass
 
         if event.get("src_ip"):
             ips_to_enrich.append(event.get("src_ip"))
@@ -2097,39 +2134,52 @@ def parse_zeek_notices():
             if note_type in IGNORED_ZEEK_NOTICE_TYPES:
                 continue
 
+            raw_ts = row.get("ts")
+            event_dt = None
+            if raw_ts and raw_ts != "-":
+                try:
+                    event_dt = datetime.utcfromtimestamp(float(raw_ts))
+                except Exception:
+                    event_dt = None
+            if not event_dt:
+                event_dt = datetime.utcnow()
+
+            target_src_ip = None if src_ip == "-" else src_ip
             already_exists = db.query(ZeekNotice).filter(
                 ZeekNotice.note_type == note_type,
                 ZeekNotice.message == message,
-                ZeekNotice.src_ip == src_ip,
-                ZeekNotice.timestamp >= datetime.utcnow() - timedelta(minutes=1)
+                ZeekNotice.src_ip == target_src_ip,
+                ZeekNotice.timestamp >= event_dt - timedelta(seconds=2),
+                ZeekNotice.timestamp <= event_dt + timedelta(seconds=2),
             ).first()
             if already_exists:
                 continue
 
             record = ZeekNotice(
-                timestamp=datetime.utcnow(),
+                timestamp=event_dt,
                 note_type=note_type,
                 message=message,
-                src_ip=None if src_ip == "-" else src_ip,
+                src_ip=target_src_ip,
                 dest_ip=None if dest_ip == "-" else dest_ip,
                 raw_event=row
             )
             db.add(record)
             new_notices += 1
 
-            # ── Broadcast to WebSocket clients so it shows live on the Alerts page ──
-            try:
-                import asyncio as _asyncio
-                _asyncio.run(manager.broadcast({
-                    "type": "new_alert",
-                    "ip": record.src_ip or record.dest_ip,
-                    "verdict": "suspicious",
-                    "source": "zeek",
-                    "signature": record.note_type,
-                    "checked_at": record.timestamp.isoformat()
-                }))
-            except Exception:
-                pass
+            # Broadcast only if the notice actually occurred recently (within last 3 minutes)
+            if (datetime.utcnow() - event_dt) <= timedelta(minutes=3):
+                try:
+                    import asyncio as _asyncio
+                    _asyncio.run(manager.broadcast({
+                        "type": "new_alert",
+                        "ip": record.src_ip or record.dest_ip,
+                        "verdict": "suspicious",
+                        "source": "zeek",
+                        "signature": record.note_type,
+                        "checked_at": record.timestamp.isoformat()
+                    }))
+                except Exception:
+                    pass
 
             if record.src_ip:
                 ips_to_enrich.append(record.src_ip)
