@@ -43,7 +43,7 @@ function Send-SocAlert {
             -H "Content-Type: application/json" `
             -H "X-API-Key: $ApiKey" `
             --data-binary "@$tmpFile" `
-            -m 10
+            -m 15
             
         Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
         return $httpCode
