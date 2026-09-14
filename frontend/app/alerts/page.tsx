@@ -83,7 +83,7 @@ export default function AlertsPage() {
           ip_address: a.title,
           verdict: a.verdict,
           source: a.source,
-          signature: a.title,
+          signature: a.detail && a.detail !== a.title ? a.detail : a.title,
           checked_at: a.timestamp,
         }))
         setAlerts(mapped)

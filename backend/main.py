@@ -1872,10 +1872,13 @@ def get_unified_alerts(
         })
 
     for sa in scoped_db.query(SystemAlert).order_by(SystemAlert.timestamp.desc()).limit(30).all():
+        title = sa.message or f"{sa.tool} alert"
+        if ":" in title:
+            title = title.split(":", 1)[0].strip()
         unified.append({
             "id": sa.id,
-            "source": "monitoring",
-            "title": f"{sa.tool} alert",
+            "source": sa.tool if sa.tool in ("laptop-network", "wazuh", "suricata", "zeek", "falco") else "monitoring",
+            "title": title,
             "severity": sa.severity,
             "detail": sa.message,
             "tenant_id": sa.tenant_id,
