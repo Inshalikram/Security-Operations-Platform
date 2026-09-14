@@ -37,16 +37,19 @@ function Send-SocAlert {
     )
     try {
         $tmpFile = [System.IO.Path]::GetTempFileName()
+        $tmpResp = [System.IO.Path]::GetTempFileName()
         $AlertData | ConvertTo-Json -Compress | Set-Content -Path $tmpFile -Encoding ASCII
         
-        $httpCode = curl.exe -k -s -w "%{http_code}" -X POST "$SocApiUrl/alerts" `
+        $httpCode = curl.exe -k -s -o "$tmpResp" -w "%{http_code}" -X POST "$SocApiUrl/alerts" `
             -H "Content-Type: application/json" `
             -H "X-API-Key: $ApiKey" `
             --data-binary "@$tmpFile" `
             -m 15
             
         Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
-        return $httpCode
+        Remove-Item $tmpResp -Force -ErrorAction SilentlyContinue
+        if ($null -eq $httpCode) { return "ERROR" }
+        return $httpCode.Trim()
     } catch {
         return "ERROR: $_"
     }
@@ -68,8 +71,19 @@ if ($SimulateTestAlert) {
     }
 
     $resp = Send-SocAlert -AlertData $testPayload
-    Write-Host "[+] Shipped simulated alert to SOC Backend ($SocApiUrl) - HTTP Status: $resp" -ForegroundColor Green
-    Write-Host "[OK] Test alert sent to SOC Dashboard. Check https://app.169-58-221-49.nip.io/alerts" -ForegroundColor Cyan
+    if ($resp -in @("200", "201")) {
+        Write-Host "[+] Shipped simulated alert to SOC Backend ($SocApiUrl) - HTTP Status: $resp OK" -ForegroundColor Green
+        Write-Host "[OK] Test alert sent to SOC Dashboard. Check https://app.169-58-221-49.nip.io/alerts" -ForegroundColor Cyan
+    } elseif ($resp -eq "401") {
+        Write-Host "[!] Shipped simulated alert to SOC Backend ($SocApiUrl) - HTTP Status: 401 Unauthorized" -ForegroundColor Red
+        Write-Host "    Reason: The VPS backend container is running an older image without X-API-Key authentication." -ForegroundColor Yellow
+        Write-Host "    Action Required on VPS terminal:" -ForegroundColor Yellow
+        Write-Host "         cd /opt/soc" -ForegroundColor Cyan
+        Write-Host "         git pull origin main" -ForegroundColor Cyan
+        Write-Host "         docker compose up -d --build backend" -ForegroundColor Cyan
+    } else {
+        Write-Host "[!] SOC Backend Response: HTTP Status $resp" -ForegroundColor Red
+    }
     exit 0
 }
 
