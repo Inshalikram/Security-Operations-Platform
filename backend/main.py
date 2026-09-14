@@ -2964,6 +2964,22 @@ def create_alert(
     scoped_db.add(alert)
     scoped_db.commit()
     scoped_db.refresh(alert)
+
+    # ── Broadcast to live WebSocket clients so it displays instantly on the Alerts page ──
+    try:
+        import asyncio as _asyncio
+        _v = "malicious" if str(payload.severity).lower() in ("critical", "high", "malicious") else "suspicious"
+        _asyncio.run(manager.broadcast({
+            "type": "new_alert",
+            "ip": payload.source_ip or payload.dest_ip or "laptop-sensor",
+            "verdict": _v,
+            "source": atype,
+            "signature": payload.title,
+            "checked_at": datetime.utcnow().isoformat()
+        }))
+    except Exception:
+        pass
+
     return {"id": alert.id, "tenant_id": alert.tenant_id, "message": "Alert created"}
 
 @app.get("/alerts/{alert_id}")

@@ -18,7 +18,12 @@ ACCEPTED_ISSUERS = [
     f"{KEYCLOAK_INTERNAL_URL}/realms/{KEYCLOAK_REALM}",
 ]
 
-security = HTTPBearer()
+from typing import Optional
+from fastapi import Depends, HTTPException, Request
+
+API_KEYS = set(k.strip() for k in os.getenv("API_KEYS", "mysecretkey123").split(",") if k.strip())
+
+security = HTTPBearer(auto_error=False)
 _jwks_cache = None
 
 def get_jwks(force_refresh: bool = False):
@@ -28,7 +33,24 @@ def get_jwks(force_refresh: bool = False):
         _jwks_cache = requests.get(url, timeout=10).json()
     return _jwks_cache
 
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def verify_token(
+    request: Optional[Request] = None,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+):
+    # ── 1. API key authentication for external sensors, laptop agents, and automated scripts ──
+    if request is not None:
+        api_key = request.headers.get("X-API-Key")
+        if api_key and api_key in API_KEYS:
+            return {
+                "preferred_username": "laptop_sensor",
+                "sub": "sensor-001",
+                "realm_access": {"roles": ["analyst", "admin"]},
+                "tenant_id": "default",
+            }
+
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Not authenticated: Bearer token or X-API-Key required")
+
     token = credentials.credentials
     try:
         unverified_header = jwt.get_unverified_header(token)

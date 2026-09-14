@@ -24,6 +24,8 @@ const SOURCE_STYLES: Record<string, string> = {
   zeek: "text-violet-400",
   falco: "text-orange-400",
   wazuh: "text-rose-400",
+  "laptop-network": "text-emerald-400",
+  laptop: "text-emerald-400",
   "threat-intel": "text-slate-500",
 }
 
@@ -31,11 +33,11 @@ const SOURCE_STYLES: Record<string, string> = {
 // consistent { source, verdict } shape. Backend sends Wazuh/tool-health
 // system alerts with source="monitoring" and severity="critical"/"warning"
 // (not "malicious"/"suspicious"/"clean"), and the real tool name is buried
-// in the title ("wazuh alert"). This pulls the tool name out and maps the
+// in the title ("wazuh alert" or "laptop-network alert"). This pulls the tool name out and maps the
 // severity so filtering + badge colors work the same as the other sources. ──
 function normalizeAlert(source: string, verdict: string, title?: string) {
   if (source === "monitoring") {
-    const toolMatch = title?.match(/^(\w+)\s+alert$/i)
+    const toolMatch = title?.match(/^([\w-]+)\s+alert$/i)
     const resolvedSource = toolMatch ? toolMatch[1].toLowerCase() : source
     const resolvedVerdict = verdict === "critical" ? "malicious" : "suspicious"
     return { source: resolvedSource, verdict: resolvedVerdict }
@@ -53,7 +55,7 @@ export default function AlertsPage() {
   useEffect(() => {
     if (!session?.accessToken) return
 
-    const MONITORING_SOURCES = ["suricata", "zeek", "falco", "wazuh"]
+    const MONITORING_SOURCES = ["suricata", "zeek", "falco", "wazuh", "laptop-network", "laptop"]
 
     function shouldShow(source: string, verdict: string) {
       // Threat-intel: sab verdicts dikhao (clean bhi)
