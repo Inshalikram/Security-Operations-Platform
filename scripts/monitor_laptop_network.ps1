@@ -206,14 +206,11 @@ function Inspect-DefenderBlocks {
     try {
         $recentEvents = Get-WinEvent -FilterHashtable @{
             LogName = 'Microsoft-Windows-Windows Defender/Operational'
-            Id = 1125, 1126, 1116, 1117
-        } -MaxEvents 15 -ErrorAction SilentlyContinue
+            Id = 1126, 1117
+        } -MaxEvents 10 -ErrorAction SilentlyContinue
 
         foreach ($evt in $recentEvents) {
-            if ($evt.TimeCreated -lt (Get-Date).AddHours(-2)) { continue }
-            $dedupKey = "defender-$($evt.Id)-$($evt.RecordId)"
-            if ($global:AlertDeduplication[$dedupKey]) { continue }
-            $global:AlertDeduplication[$dedupKey] = Get-Date
+            if ($evt.TimeCreated -lt (Get-Date).AddHours(-1)) { continue }
 
             $msg = $evt.Message
             $target = "Unknown"
@@ -224,7 +221,13 @@ function Inspect-DefenderBlocks {
             if ($msg -match 'Process Name:\s*(.+)') { $proc = [System.IO.Path]::GetFileName($matches[1].Trim()) }
             if ($msg -match 'Name:\s*(.+)') { $malware = $matches[1].Trim() }
 
-            $isWebBlock = $evt.Id -in @(1125, 1126)
+            $threatSubject = if ($evt.Id -eq 1126) { $target } else { $malware }
+            $dedupKey = "defender-$($evt.Id)-$threatSubject"
+            $lastSent = $global:AlertDeduplication[$dedupKey]
+            if ($lastSent -and ((Get-Date) - $lastSent).TotalSeconds -lt 60) { continue }
+            $global:AlertDeduplication[$dedupKey] = Get-Date
+
+            $isWebBlock = $evt.Id -eq 1126
             $title = if ($isWebBlock) {
                 "Malicious URL Blocked: $target ($proc)"
             } else {
