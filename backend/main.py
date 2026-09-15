@@ -186,12 +186,13 @@ class PendingApproval(Base):
     params = Column(JSON, nullable=True)
     risk_score = Column(Float, default=0.85)
     confidence = Column(Float, default=1.0)
-    status = Column(String, default="pending")  # pending, approved, rejected, executed
+    status = Column(String, default="pending")  # pending, approved, rejected, executed, expired
     reasoning = Column(String, nullable=True)
     requested_at = Column(DateTime, default=datetime.utcnow)
     decided_by = Column(String, nullable=True)
     decided_at = Column(DateTime, nullable=True)
     executed_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)  # Auto-unblock TTL (e.g. 24h)
     result = Column(JSON, nullable=True)
 
 
@@ -1466,7 +1467,8 @@ def list_pending_approvals(
             "risk_score": a.risk_score,
             "confidence": a.confidence,
             "tenant_id": a.tenant_id,
-            "requested_at": a.requested_at.isoformat() if a.requested_at else None
+            "requested_at": a.requested_at.isoformat() if a.requested_at else None,
+            "expires_at": a.expires_at.isoformat() if getattr(a, "expires_at", None) else None,
         } for a in pending
     ]
 
@@ -1776,6 +1778,14 @@ def _sync_watchdog_step():
                 if not recent:
                     db.add(SystemAlert(tool=tool, message=f"{tool} monitoring tool is not reporting data", severity="warning"))
                     db.commit()
+
+        # ── Check for expired containment actions (Auto-Unblock 24h timer) ──
+        try:
+            from governance import process_expired_actions
+            process_expired_actions(db)
+        except Exception as e_exp:
+            print("Auto-unblock check error:", e_exp)
+
         db.close()
     except Exception as e:
         print("Monitoring watchdog sync step error:", e)

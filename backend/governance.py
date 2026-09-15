@@ -2,7 +2,7 @@
 execution → audit lifecycle. No destructive action ever executes without a
 human calling approve_action()."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from policy_engine import (
     policy_middleware,
@@ -14,7 +14,13 @@ from policy_engine import (
 
 def execute_block_ip(target: str, params: dict) -> dict:
     """Blocks an IP address at the firewall/gateway."""
-    return {"blocked_ip": target, "method": "simulated_firewall", "status": "blocked"}
+    duration_hours = int(params.get("duration_hours", 24))
+    return {"blocked_ip": target, "method": "simulated_firewall", "status": "blocked", "duration_hours": duration_hours}
+
+
+def execute_unblock_ip(target: str, params: dict) -> dict:
+    """Unblocks an IP address after TTL expiration."""
+    return {"unblocked_ip": target, "method": "simulated_firewall", "status": "unblocked"}
 
 
 def execute_isolate_host(target: str, params: dict) -> dict:
@@ -39,6 +45,7 @@ def execute_disable_account(target: str, params: dict) -> dict:
 
 ACTION_REGISTRY = {
     "block_ip": execute_block_ip,
+    "unblock_ip": execute_unblock_ip,
     "isolate_host": execute_isolate_host,
     "delete_evidence": execute_delete_evidence,
     "modify_firewall": execute_modify_firewall,
@@ -111,11 +118,19 @@ def approve_action(db, action_id: int, approver: str) -> dict:
 
     # Update record
     now = datetime.utcnow()
+    expires_at = None
+    if action_name in ("block_ip", "isolate_host", "modify_firewall", "modify_firewall_rule"):
+        duration_hours = int(params.get("duration_hours", 24))
+        expires_at = now + timedelta(hours=duration_hours)
+        if isinstance(result, dict):
+            result["expires_at"] = expires_at.isoformat()
+
     if record:
         record.status = "executed"
         record.decided_by = approver
         record.decided_at = now
         record.executed_at = now
+        record.expires_at = expires_at
         record.result = result
 
     if legacy_record or record:
@@ -206,3 +221,48 @@ def reject_action(db, action_id: int, approver: str, reason: str = "") -> dict:
     db.commit()
 
     return {"status": "rejected"}
+
+
+def process_expired_actions(db) -> list:
+    """Finds all executed actions whose expires_at has passed, transitions them to expired,
+    and logs the automated unblock event into AgentAuditLog."""
+    from main import PendingApproval, AgentAuditLog
+    now = datetime.utcnow()
+    try:
+        expired_records = db.query(PendingApproval).filter(
+            PendingApproval.status == "executed",
+            PendingApproval.expires_at.isnot(None),
+            PendingApproval.expires_at <= now,
+        ).all()
+    except Exception:
+        return []
+
+    unblocked_items = []
+    for rec in expired_records:
+        rec.status = "expired"
+        unblock_result = {"action": "auto_unblocked", "target": rec.target, "reason": "TTL expired"}
+        if isinstance(rec.result, dict):
+            rec.result["unblock"] = unblock_result
+        else:
+            rec.result = {"unblock": unblock_result}
+
+        # Log auto-unblock to AgentAuditLog
+        audit = AgentAuditLog(
+            agent_name=rec.agent_name or "governance_engine",
+            tool_name="unblock_ip" if rec.action_name == "block_ip" else f"unblock_{rec.action_name}",
+            tool_input={"target": rec.target, "expired_action_id": rec.id},
+            decision="expired_auto_unblock",
+            risk_score=0.1,
+            confidence=1.0,
+            reasoning=f"Auto-unblocked target {rec.target} because the expiration timer ({rec.expires_at}) has elapsed.",
+            approver="system_timer",
+            result=unblock_result,
+            tenant_id=rec.tenant_id or "default",
+            created_at=now,
+        )
+        db.add(audit)
+        unblocked_items.append({"id": rec.id, "target": rec.target, "action": rec.action_name})
+
+    if expired_records:
+        db.commit()
+    return unblocked_items
