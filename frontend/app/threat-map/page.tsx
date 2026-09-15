@@ -71,12 +71,6 @@ export default function ThreatMapPage() {
     return `rgb(${r},${g},${b})`
   }
 
-  // Top origin countries sorted by total detections
-  const topCountries = Object.entries(countryData)
-    .filter(([name]) => name !== "Unknown")
-    .sort((a, b) => (b[1]?.total || 0) - (a[1]?.total || 0))
-    .slice(0, 8)
-
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -188,32 +182,10 @@ export default function ThreatMapPage() {
                   </Geographies>
                 </ComposableMap>
 
-                {/* Legend & Quick-Select Origin Countries */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-white/5 mt-4">
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <span>Low activity</span>
-                    <div className="h-2 w-24 rounded-full bg-gradient-to-r from-violet-600 to-rose-600" />
-                    <span>High activity</span>
-                  </div>
-
-                  {topCountries.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-xs text-slate-400 mr-1">Quick Select:</span>
-                      {topCountries.map(([name, stats]) => (
-                        <button
-                          key={name}
-                          onClick={() => setSelectedCountry({ name, stats })}
-                          className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${
-                            selectedCountry?.name === name
-                              ? "bg-rose-500/20 border-rose-500/50 text-rose-300"
-                              : "bg-white/[0.03] border-white/10 text-slate-300 hover:bg-white/[0.08]"
-                          }`}
-                        >
-                          {name} <span className="text-slate-400 font-mono text-[11px]">({stats.total})</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                <div className="flex items-center justify-center gap-2 mt-4 text-xs text-slate-500">
+                  <span>Low activity</span>
+                  <div className="h-2 w-24 rounded-full bg-gradient-to-r from-violet-600 to-rose-600" />
+                  <span>High activity</span>
                 </div>
               </CardContent>
             </Card>
