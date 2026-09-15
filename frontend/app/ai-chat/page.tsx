@@ -28,12 +28,12 @@ function parseInline(text: string): React.ReactNode {
   return parts.map((part, index) => {
     if (part.startsWith("`") && part.endsWith("`")) {
       return (
-        <code
+        <span
           key={index}
-          className="px-1 py-0.5 mx-0.5 rounded bg-white/[0.06] text-slate-200 font-mono text-xs"
+          className="font-mono text-slate-100 font-medium"
         >
           {part.slice(1, -1)}
-        </code>
+        </span>
       )
     }
     if (part.startsWith("***") && part.endsWith("***")) {
@@ -126,16 +126,14 @@ function FormattedReportView({ content }: { content: string }) {
       const level = trimmed.match(/^#+/)?.[0].length || 1
       const title = trimmed.replace(/^#+\s*/, "")
       elements.push(
-        <div key={`h-${i}`} className="mt-4 mb-2 pt-1 flex items-center gap-2">
-          <div className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
-          <h4
-            className={`font-semibold text-white tracking-tight ${
-              level <= 2 ? "text-base" : "text-sm"
-            }`}
-          >
-            {parseInline(title)}
-          </h4>
-        </div>
+        <h4
+          key={`h-${i}`}
+          className={`font-semibold text-white tracking-tight mt-4 mb-2 ${
+            level <= 2 ? "text-base" : "text-sm"
+          }`}
+        >
+          {parseInline(title)}
+        </h4>
       )
       continue
     }
@@ -482,12 +480,12 @@ export default function AIChat() {
                       </span>
                     )}
                     {result.assigned_to && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-slate-300">
                         Assigned: {result.assigned_to}
                       </span>
                     )}
                     {result.period && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300 capitalize">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-slate-300 capitalize">
                         Period: {result.period}
                       </span>
                     )}
