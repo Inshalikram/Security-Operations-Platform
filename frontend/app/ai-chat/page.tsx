@@ -30,7 +30,7 @@ function parseInline(text: string): React.ReactNode {
       return (
         <code
           key={index}
-          className="px-1.5 py-0.5 mx-0.5 rounded bg-violet-500/15 border border-violet-500/25 text-violet-300 font-mono text-xs"
+          className="px-1 py-0.5 mx-0.5 rounded bg-white/[0.06] text-slate-200 font-mono text-xs"
         >
           {part.slice(1, -1)}
         </code>
@@ -75,13 +75,13 @@ function FormattedReportView({ content }: { content: string }) {
     const key = `list-${elements.length}`
     if (currentList.type === "number") {
       elements.push(
-        <div key={key} className="space-y-3 my-3">
+        <div key={key} className="space-y-2.5 my-2.5">
           {currentList.items.map((item, idx) => (
-            <div key={idx} className="flex items-start gap-3 pl-0.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-violet-500/20 border border-violet-500/30 text-xs font-semibold text-violet-300">
-                {item.num || idx + 1}
+            <div key={idx} className="flex items-start gap-2 pl-0.5">
+              <span className="font-mono text-xs font-semibold text-slate-400 shrink-0 pt-0.5 select-none w-4">
+                {item.num ? `${item.num}.` : `${idx + 1}.`}
               </span>
-              <div className="text-slate-300 leading-relaxed pt-0.5">{parseInline(item.text)}</div>
+              <div className="text-slate-300 leading-relaxed text-sm flex-1">{parseInline(item.text)}</div>
             </div>
           ))}
         </div>
@@ -92,11 +92,11 @@ function FormattedReportView({ content }: { content: string }) {
           {currentList.items.map((item, idx) => (
             <li
               key={idx}
-              className={`flex items-start gap-2.5 text-slate-300 leading-relaxed ${
+              className={`flex items-start gap-2.5 text-slate-300 leading-relaxed text-sm ${
                 item.indent > 0 ? "ml-6" : "ml-2"
               }`}
             >
-              <span className="text-violet-400 mt-1.5 text-xs select-none">•</span>
+              <span className="text-slate-500 mt-1.5 text-xs select-none">•</span>
               <div className="flex-1">{parseInline(item.text)}</div>
             </li>
           ))}
@@ -127,7 +127,7 @@ function FormattedReportView({ content }: { content: string }) {
       const title = trimmed.replace(/^#+\s*/, "")
       elements.push(
         <div key={`h-${i}`} className="mt-4 mb-2 pt-1 flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-violet-400 shadow-sm shadow-violet-400/50" />
+          <div className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
           <h4
             className={`font-semibold text-white tracking-tight ${
               level <= 2 ? "text-base" : "text-sm"
