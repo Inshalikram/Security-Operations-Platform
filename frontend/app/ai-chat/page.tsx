@@ -192,7 +192,12 @@ export default function AIChat() {
 
   const authHeaders = { Authorization: `Bearer ${session?.accessToken}` }
 
-  async function runAction(key: string, endpointFn: (ip: string) => string, label: string) {
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const q = new URLSearchParams(window.location.search).get("ip")
+      if (q) setIp(q)
+    }
+  }, [])
     if (!ip) return
     setLoadingKey(key)
     setActiveLabel(label)

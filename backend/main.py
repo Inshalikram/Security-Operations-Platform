@@ -2318,6 +2318,18 @@ def get_threat_map(user=Depends(verify_token)):
     try:
         db = SessionLocal()
         records = db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(200).all()
+
+        # Build correlation maps from recent network intrusion and notice logs
+        suricata_map = {}
+        for s in db.query(SuricataAlert.src_ip, SuricataAlert.signature).order_by(SuricataAlert.timestamp.desc()).limit(500).all():
+            if s.src_ip and s.src_ip not in suricata_map and s.signature:
+                suricata_map[s.src_ip] = s.signature
+
+        zeek_map = {}
+        for z in db.query(ZeekNotice.src_ip, ZeekNotice.note_type).order_by(ZeekNotice.timestamp.desc()).limit(200).all():
+            if z.src_ip and z.src_ip not in zeek_map and z.note_type:
+                zeek_map[z.src_ip] = z.note_type
+
         db.close()
 
         country_summary = {}
@@ -2325,17 +2337,47 @@ def get_threat_map(user=Depends(verify_token)):
         for r in records:
             country = r.country or "Unknown"
             if country not in country_summary:
-                country_summary[country] = {"total": 0, "malicious": 0, "suspicious": 0, "clean": 0}
+                country_summary[country] = {
+                    "total": 0, "malicious": 0, "suspicious": 0, "clean": 0,
+                    "threats": []
+                }
             country_summary[country]["total"] += 1
             if r.verdict in country_summary[country]:
                 country_summary[country][r.verdict] += 1
-            points.append({
+
+            # Determine human-readable intent/action
+            intent = suricata_map.get(r.ip_address) or zeek_map.get(r.ip_address)
+            if not intent:
+                details = r.details or {}
+                abuse = details.get("abuseipdb", {})
+                shodan = details.get("shodan", {})
+                open_ports = [str(p) for p in (shodan.get("open_ports") or [])]
+                reports = abuse.get("total_reports", 0)
+
+                if "22" in open_ports or reports > 100:
+                    intent = "SSH Dictionary & Brute-Force Scanning"
+                elif "80" in open_ports or "443" in open_ports:
+                    intent = "Web Application Probing & Reconnaissance"
+                elif reports > 10:
+                    intent = f"Automated Botnet Scanner ({reports} abuse reports)"
+                elif r.malicious_signals > 0:
+                    intent = "Suspicious Hostile Port Scanning"
+                else:
+                    intent = "General Network Probe"
+
+            threat_obj = {
                 "ip": r.ip_address,
                 "country": country,
                 "verdict": r.verdict,
+                "intent": intent,
                 "malicious_signals": r.malicious_signals,
-                "checked_at": r.checked_at.isoformat()
-            })
+                "checked_at": r.checked_at.isoformat() if r.checked_at else None
+            }
+
+            if not any(t["ip"] == r.ip_address for t in country_summary[country]["threats"]):
+                country_summary[country]["threats"].append(threat_obj)
+
+            points.append(threat_obj)
 
         return {"countries": country_summary, "points": points}
     except Exception as e:
