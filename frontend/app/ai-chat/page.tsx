@@ -198,6 +198,8 @@ export default function AIChat() {
       if (q) setIp(q)
     }
   }, [])
+
+  async function runAction(key: string, endpointFn: (ip: string) => string, label: string) {
     if (!ip) return
     setLoadingKey(key)
     setActiveLabel(label)
