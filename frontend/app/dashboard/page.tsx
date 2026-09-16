@@ -1,41 +1,42 @@
 import { auth, signOut } from "@/auth"
 import { redirect } from "next/navigation"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Shield, AlertTriangle, ShieldAlert, Activity } from "lucide-react"
 import DashboardChart from "@/components/dashboard-chart"
-import FormattedTime from "@/components/formatted-time"
+import DashboardTable, { ThreatRecord } from "@/components/dashboard-table"
 
-type ThreatRecord = {
-  ip: string
-  verdict: string
-  malicious_signals: number
-  sources_checked: string[]
-  checked_at: string
+type ThreatStats = {
+  total: number
+  malicious: number
+  suspicious: number
+  clean: number
+}
+
+async function getStats(token: string): Promise<ThreatStats | null> {
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/threat-intel/stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
 }
 
 async function getHistory(token: string): Promise<ThreatRecord[]> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/threat-intel/history`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  })
-  if (!res.ok) return []
-  return res.json()
-}
-
-function verdictBadgeClass(verdict: string) {
-  if (verdict === "malicious") return "bg-rose-500/10 text-rose-400 border-rose-500/30"
-  if (verdict === "suspicious") return "bg-orange-500/10 text-orange-400 border-orange-500/30"
-  return "bg-teal-500/10 text-teal-400 border-teal-500/30"
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/threat-intel/history?limit=100`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    })
+    if (!res.ok) return []
+    return res.json()
+  } catch {
+    return []
+  }
 }
 
 export default async function Dashboard() {
@@ -43,10 +44,15 @@ export default async function Dashboard() {
   if (!session) redirect("/")
   if (session.error === "RefreshAccessTokenError") redirect("/api/auth/signin")
 
-  const history = await getHistory(session.accessToken as string)
-  const malicious = history.filter((h) => h.verdict === "malicious").length
-  const suspicious = history.filter((h) => h.verdict === "suspicious").length
-  const clean = history.filter((h) => h.verdict === "clean").length
+  const [statsData, history] = await Promise.all([
+    getStats(session.accessToken as string),
+    getHistory(session.accessToken as string),
+  ])
+
+  const total = statsData ? statsData.total : history.length
+  const malicious = statsData ? statsData.malicious : history.filter((h) => h.verdict === "malicious").length
+  const suspicious = statsData ? statsData.suspicious : history.filter((h) => h.verdict === "suspicious").length
+  const clean = statsData ? statsData.clean : history.filter((h) => h.verdict === "clean").length
 
   const chartData = [
     { name: "Malicious", value: malicious, color: "#fb7185" },
@@ -105,7 +111,7 @@ export default async function Dashboard() {
             <CardContent className="flex items-center justify-between pt-6">
               <div>
                 <p className="text-sm text-slate-500">Total Checked</p>
-                <p className="text-3xl font-bold text-white">{history.length}</p>
+                <p className="text-3xl font-bold text-white">{total}</p>
               </div>
               <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-violet-500/10">
                 <Activity className="h-5 w-5 text-violet-400" />
@@ -167,40 +173,7 @@ export default async function Dashboard() {
               <CardTitle className="text-base text-white">Recent Threat Checks</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-white/5 hover:bg-transparent">
-                    <TableHead className="text-slate-500">IP Address</TableHead>
-                    <TableHead className="text-slate-500">Verdict</TableHead>
-                    <TableHead className="text-slate-500">Signals</TableHead>
-                    <TableHead className="text-slate-500">Checked At (PKT)</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {history.length === 0 ? (
-                    <TableRow className="border-white/5">
-                      <TableCell colSpan={4} className="text-center text-slate-600 py-8">
-                        No records yet
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    history.slice(0, 10).map((record, i) => (
-                      <TableRow key={i} className="border-white/5 hover:bg-white/[0.03]">
-                        <TableCell className="font-mono text-sm text-slate-300">{record.ip}</TableCell>
-                        <TableCell>
-                          <Badge className={verdictBadgeClass(record.verdict)} variant="outline">
-                            {record.verdict}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-slate-400">{record.malicious_signals}</TableCell>
-                        <TableCell className="text-sm text-slate-400 font-mono">
-                          <FormattedTime date={record.checked_at} />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+              <DashboardTable initialRecords={history} />
             </CardContent>
           </Card>
         </div>

@@ -960,12 +960,30 @@ def unified_threat_check_endpoint(
         return {"error": str(e)}
 
 
-@app.get("/threat-intel/history")
-def get_history(
+@app.get("/threat-intel/stats")
+def get_threat_intel_stats(
     scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
     user=Depends(verify_token),
 ):
-    records = scoped_db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(20).all()
+    total = scoped_db.query(Indicator).count()
+    malicious = scoped_db.query(Indicator).filter(Indicator.verdict == "malicious").count()
+    suspicious = scoped_db.query(Indicator).filter(Indicator.verdict == "suspicious").count()
+    clean = scoped_db.query(Indicator).filter(Indicator.verdict == "clean").count()
+    return {
+        "total": total,
+        "malicious": malicious,
+        "suspicious": suspicious,
+        "clean": clean,
+    }
+
+
+@app.get("/threat-intel/history")
+def get_history(
+    limit: int = 100,
+    scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
+    user=Depends(verify_token),
+):
+    records = scoped_db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(limit).all()
     return [
         {
             "id": r.id,
