@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
+import { Menu } from "lucide-react"
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -37,30 +38,13 @@ export default function Sidebar() {
   return (
     <>
       {/* Hamburger button ... */}
-      {/* Hamburger button — now scrolls away with the page instead of staying pinned */}
+      {/* Hamburger button — perfectly aligned with header logo */}
       <button
         onClick={() => setOpen(true)}
         aria-label="Open menu"
-        style={{
-          position: "absolute",
-          top: 21,
-          left: 14,
-          zIndex: 50,
-          background: "#03045E",
-          border: "1px solid rgba(255, 255, 255, 0.15)",
-          borderRadius: 12,
-          width: 38,
-          height: 40,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "white",
-          fontSize: 20,
-          cursor: "pointer",
-          boxShadow: "0 4px 14px rgba(3, 4, 94, 0.6)",
-        }}
+        className="fixed top-2.5 left-3.5 z-50 flex h-8 w-8 items-center justify-center rounded-lg bg-[#03045E] hover:bg-[#023e8a] border border-blue-400/30 text-white shadow-md shadow-[#03045E]/40 transition-colors cursor-pointer"
       >
-        ☰
+        <Menu className="h-4 w-4 text-white" />
       </button>
 
       {/* Dark overlay when sidebar is open — stays fixed so it covers the full viewport while open */}

@@ -52,21 +52,58 @@ export default function DashboardView({
     setIsLoading(true)
 
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || ""
-      const headers = { Authorization: `Bearer ${token}` }
+      let statsUpdated = false
+      let historyUpdated = false
 
-      const [statsRes, historyRes] = await Promise.all([
-        fetch(`${baseUrl}/threat-intel/stats?time_range=${range}`, { headers }),
-        fetch(`${baseUrl}/threat-intel/history?time_range=${range}&limit=100`, { headers }),
-      ])
+      // 1. Try Next.js internal API proxy route (same-origin, automatic auth session)
+      try {
+        const [statsRes, historyRes] = await Promise.all([
+          fetch(`/api/threat-intel/stats?time_range=${range}`, { cache: "no-store" }),
+          fetch(`/api/threat-intel/history?time_range=${range}&limit=100`, { cache: "no-store" }),
+        ])
 
-      if (statsRes.ok) {
-        const statsData = await statsRes.json()
-        setStats(statsData)
+        if (statsRes.ok) {
+          const statsData = await statsRes.json()
+          if (statsData && typeof statsData.total === "number") {
+            setStats(statsData)
+            statsUpdated = true
+          }
+        }
+        if (historyRes.ok) {
+          const historyData = await historyRes.json()
+          if (Array.isArray(historyData)) {
+            setHistory(historyData)
+            historyUpdated = true
+          }
+        }
+      } catch (proxyErr) {
+        console.warn("Proxy route fetch failed, trying direct endpoint:", proxyErr)
       }
-      if (historyRes.ok) {
-        const historyData = await historyRes.json()
-        setHistory(historyData)
+
+      // 2. Direct fallback to backend API if proxy was not used
+      if (!statsUpdated || !historyUpdated) {
+        const directBase =
+          process.env.NEXT_PUBLIC_API_URL ||
+          (typeof window !== "undefined" && window.location.hostname.includes("169-58-221-49.nip.io")
+            ? "https://api.169-58-221-49.nip.io"
+            : "http://169.58.221.49:8000")
+
+        const headers: Record<string, string> = {}
+        if (token) headers["Authorization"] = `Bearer ${token}`
+
+        const [directStatsRes, directHistoryRes] = await Promise.all([
+          !statsUpdated ? fetch(`${directBase}/threat-intel/stats?time_range=${range}`, { headers }) : null,
+          !historyUpdated ? fetch(`${directBase}/threat-intel/history?time_range=${range}&limit=100`, { headers }) : null,
+        ])
+
+        if (directStatsRes && directStatsRes.ok) {
+          const statsData = await directStatsRes.json()
+          setStats(statsData)
+        }
+        if (directHistoryRes && directHistoryRes.ok) {
+          const historyData = await directHistoryRes.json()
+          setHistory(historyData)
+        }
       }
     } catch (err) {
       console.error("Failed to load stats for time range:", err)
@@ -212,14 +249,14 @@ export default function DashboardView({
         {/* Charts and Tables */}
         <div className={`grid grid-cols-1 gap-3 lg:grid-cols-3 transition-opacity duration-200 ${isLoading ? "opacity-60" : "opacity-100"}`}>
           {/* Chart */}
-          <Card className="lg:col-span-1 border-white/5 bg-white/[0.03] backdrop-blur-xl flex flex-col justify-between">
+          <Card className="lg:col-span-1 border-white/5 bg-white/[0.03] backdrop-blur-xl flex flex-col">
             <CardHeader className="py-2.5 px-4 border-b border-white/5">
               <CardTitle className="text-xs font-semibold text-white flex items-center justify-between">
                 <span>Verdict Breakdown</span>
                 <span className="text-[10px] font-normal text-slate-500 font-mono">{currentRangeObj.fullLabel}</span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-3">
+            <CardContent className="flex-1 flex flex-col items-center justify-center p-3 sm:p-4">
               <DashboardChart data={chartData} />
             </CardContent>
           </Card>
