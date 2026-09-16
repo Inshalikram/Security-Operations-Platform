@@ -42,7 +42,7 @@ export default function Sidebar() {
       <button
         onClick={() => setOpen(true)}
         aria-label="Open menu"
-        className="fixed top-2.5 left-3.5 z-50 flex h-8 w-8 items-center justify-center rounded-lg bg-[#03045E] hover:bg-[#023e8a] border border-blue-400/30 text-white shadow-md shadow-[#03045E]/40 transition-colors cursor-pointer"
+        className="fixed top-2.5 left-3.5 z-50 flex h-8 w-8 items-center justify-center rounded-lg bg-[#1c2e4a] hover:bg-[#243b61] border border-[#1c2e4a] text-white shadow-md shadow-[#1c2e4a]/40 transition-colors cursor-pointer"
       >
         <Menu className="h-4 w-4 text-white" />
       </button>
@@ -88,8 +88,8 @@ export default function Sidebar() {
                 marginBottom: 4,
                 borderRadius: 8,
                 color: active ? "#ffffff" : "rgba(255,255,255,0.65)",
-                background: active ? "#03045E" : "transparent",
-                borderLeft: active ? "3px solid #0096c7" : "3px solid transparent",
+                background: active ? "#1c2e4a" : "transparent",
+                border: active ? "1px solid #243b61" : "1px solid transparent",
                 textDecoration: "none",
                 fontSize: 14,
                 fontWeight: active ? 600 : 400,

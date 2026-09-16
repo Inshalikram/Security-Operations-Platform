@@ -80,7 +80,7 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
             placeholder="Search IP address..."
             value={searchTerm}
             onChange={handleSearchChange}
-            className="pl-8 h-7 text-xs bg-white/[0.03] border-white/10 text-slate-200 placeholder:text-slate-500 focus:border-[#03045E]"
+            className="pl-8 h-7 text-xs bg-white/[0.03] border-white/10 text-slate-200 placeholder:text-slate-500 focus:border-[#1c2e4a] focus:ring-1 focus:ring-[#1c2e4a]"
           />
         </div>
 
@@ -94,7 +94,7 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
                 onClick={() => handleVerdictChange(filter)}
                 className={`px-2 py-0.5 text-[11px] rounded font-medium capitalize transition-colors ${
                   isActive
-                    ? "bg-[#03045E] text-white border border-blue-400/50 shadow-sm shadow-[#03045E]/50 font-semibold"
+                    ? "bg-[#1c2e4a] text-white border border-[#1c2e4a] shadow-sm shadow-[#1c2e4a]/50 font-semibold"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
                 }`}
               >

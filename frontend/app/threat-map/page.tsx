@@ -64,35 +64,35 @@ export default function ThreatMapPage() {
     const stats = countryData[name]
     if (!stats) return "#1e1e2e"           // no data — dark neutral
     const intensity = stats.total / maxTotal
-    // interpolate between #03045E and threat red (#ef4444) by intensity
-    const r = Math.round(3 + (239 - 3) * intensity)
-    const g = Math.round(4 + (68 - 4) * intensity)
-    const b = Math.round(94 + (68 - 94) * intensity)
+    // interpolate between #1c2e4a and threat red (#ef4444) by intensity
+    const r = Math.round(28 + (239 - 28) * intensity)
+    const g = Math.round(46 + (68 - 46) * intensity)
+    const b = Math.round(74 + (68 - 74) * intensity)
     return `rgb(${r},${g},${b})`
   }
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[#03045E]/40 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-[#03045E]/30 blur-3xl" />
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[#1c2e4a]/40 blur-3xl" />
+        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-[#1c2e4a]/30 blur-3xl" />
       </div>
 
-      <header className="relative border-b border-white/5 bg-white/[0.02] pl-20 pr-8 py-5 backdrop-blur-xl">
+      <header className="relative border-b border-white/5 bg-white/[0.02] pl-16 sm:pl-20 pr-4 sm:pr-8 py-2.5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#03045E] border border-blue-400/30 shadow-lg shadow-[#03045E]/40">
-              <Globe className="h-5 w-5 text-white" />
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1c2e4a] border border-[#1c2e4a] shadow-md shadow-[#1c2e4a]/40">
+              <Globe className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold leading-tight text-white">Threat Map</h1>
-              <p className="text-xs text-slate-500">Live global intrusions & attacker intent by country</p>
+              <h1 className="text-sm font-semibold leading-tight text-white">Threat Map</h1>
+              <p className="text-[10px] text-slate-500">Live global intrusions &amp; attacker intent by country</p>
             </div>
           </div>
           <Button
             variant="outline"
-            size="sm"
-            className="border-white/10 text-slate-300 hover:bg-white/5"
+            size="xs"
+            className="border-white/10 text-slate-300 hover:bg-white/5 text-xs h-7 px-2.5"
             onClick={() => signOut({ callbackUrl: "/" })}
           >
             Sign Out
@@ -184,7 +184,7 @@ export default function ThreatMapPage() {
 
                 <div className="flex items-center justify-center gap-2 mt-4 text-xs text-slate-500">
                   <span>Low activity</span>
-                  <div className="h-2 w-24 rounded-full bg-gradient-to-r from-[#03045E] to-rose-600" />
+                  <div className="h-2 w-24 rounded-full bg-gradient-to-r from-[#1c2e4a] to-rose-600" />
                   <span>High activity</span>
                 </div>
               </CardContent>

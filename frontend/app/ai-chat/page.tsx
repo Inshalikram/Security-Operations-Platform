@@ -304,25 +304,25 @@ export default function AIChat() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[#03045E]/40 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-[#03045E]/30 blur-3xl" />
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[#1c2e4a]/40 blur-3xl" />
+        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-[#1c2e4a]/30 blur-3xl" />
       </div>
 
-      <header className="relative border-b border-white/5 bg-white/[0.02] pl-20 pr-8 py-5 backdrop-blur-xl">
+      <header className="relative border-b border-white/5 bg-white/[0.02] pl-16 sm:pl-20 pr-4 sm:pr-8 py-2.5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#03045E] border border-blue-400/30 shadow-lg shadow-[#03045E]/40">
-              <Sparkles className="h-5 w-5 text-white" />
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1c2e4a] border border-[#1c2e4a] shadow-md shadow-[#1c2e4a]/40">
+              <Sparkles className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold leading-tight text-white">AI Analyst Console</h1>
-              <p className="text-xs text-slate-500">IOC Lookup &amp; Agentic Investigation</p>
+              <h1 className="text-sm font-semibold leading-tight text-white">AI Analyst Console</h1>
+              <p className="text-[10px] text-slate-500">IOC Lookup &amp; Agentic Investigation</p>
             </div>
           </div>
           <Button
             variant="outline"
-            size="sm"
-            className="border-white/10 text-slate-300 hover:bg-white/5"
+            size="xs"
+            className="border-white/10 text-slate-300 hover:bg-white/5 text-xs h-7 px-2.5"
             onClick={() => signOut({ callbackUrl: "/" })}
           >
             Sign Out
@@ -348,7 +348,7 @@ export default function AIChat() {
                   key={action.key}
                   onClick={() => runAction(action.key, action.endpoint, action.label)}
                   disabled={!ip || loadingKey !== null}
-                  className="bg-[#03045E] hover:bg-[#023e8a] border border-blue-400/40 text-white shadow-sm shadow-[#03045E]/40 font-medium"
+                  className="bg-[#1c2e4a] hover:bg-[#243b61] border border-[#1c2e4a] text-white shadow-sm shadow-[#1c2e4a]/40 font-medium"
                 >
                   {loadingKey === action.key ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -392,7 +392,7 @@ export default function AIChat() {
             <Button
               onClick={runMalwareInvestigate}
               disabled={(!hash && !filename && !malwareUrl) || loadingKey !== null}
-              className="mt-4 bg-[#03045E] hover:bg-[#023e8a] border border-blue-400/40 text-white shadow-sm shadow-[#03045E]/40 font-medium"
+              className="mt-4 bg-[#1c2e4a] hover:bg-[#243b61] border border-[#1c2e4a] text-white shadow-sm shadow-[#1c2e4a]/40 font-medium"
             >
               {loadingKey === "malware" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Investigate
@@ -415,7 +415,7 @@ export default function AIChat() {
                   key={period}
                   onClick={() => runExecReport(period)}
                   disabled={loadingKey !== null}
-                  className="bg-[#03045E] hover:bg-[#023e8a] border border-blue-400/40 text-white shadow-sm shadow-[#03045E]/40 capitalize font-medium"
+                  className="bg-[#1c2e4a] hover:bg-[#243b61] border border-[#1c2e4a] text-white shadow-sm shadow-[#1c2e4a]/40 capitalize font-medium"
                 >
                   {loadingKey === `exec-${period}` ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
