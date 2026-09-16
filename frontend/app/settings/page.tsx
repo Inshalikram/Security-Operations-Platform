@@ -16,14 +16,14 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-violet-600/10 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-rose-600/10 blur-3xl" />
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-blue-600/10 blur-3xl" />
+        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-sky-600/10 blur-3xl" />
       </div>
 
       <header className="relative border-b border-white/5 bg-white/[0.02] pl-20 pr-8 py-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-rose-500 shadow-lg shadow-violet-500/20">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/25">
               <SettingsIcon className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -46,7 +46,7 @@ export default function SettingsPage() {
         <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-base text-white flex items-center gap-2">
-              <User className="h-4 w-4 text-violet-400" />
+              <User className="h-4 w-4 text-blue-400" />
               Account
             </CardTitle>
           </CardHeader>
@@ -65,7 +65,7 @@ export default function SettingsPage() {
         <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-base text-white flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-violet-400" />
+              <Cpu className="h-4 w-4 text-blue-400" />
               Default AI Provider
             </CardTitle>
           </CardHeader>
@@ -80,7 +80,7 @@ export default function SettingsPage() {
                   onClick={() => setProvider(p)}
                   className={`text-sm px-4 py-2 rounded-lg border transition-colors ${
                     provider === p
-                      ? "bg-gradient-to-br from-violet-600 to-rose-600 border-transparent text-white"
+                      ? "bg-blue-600 border-transparent text-white shadow-sm shadow-blue-500/25"
                       : "border-white/10 text-slate-300 hover:bg-white/5"
                   }`}
                 >

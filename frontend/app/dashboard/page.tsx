@@ -53,15 +53,15 @@ export default async function Dashboard() {
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
       {/* Ambient glow background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-violet-600/10 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-rose-600/10 blur-3xl" />
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-blue-600/10 blur-3xl" />
+        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-sky-600/10 blur-3xl" />
       </div>
 
       {/* Header */}
       <header className="relative border-b border-white/5 bg-white/[0.02] pl-20 pr-8 py-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-rose-500 shadow-lg shadow-violet-500/20">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/25">
               <Shield className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -76,7 +76,7 @@ export default async function Dashboard() {
               </p>
               <p className="text-xs text-slate-500">Analyst</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-rose-500 text-sm font-medium text-white">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 shadow-md shadow-blue-500/20 text-sm font-medium text-white">
               {(session.user?.name || "U").charAt(0)}
             </div>
             <form

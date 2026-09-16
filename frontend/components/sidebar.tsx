@@ -46,7 +46,7 @@ export default function Sidebar() {
           top: 21,
           left: 14,
           zIndex: 50,
-          background: "linear-gradient(135deg, #ec4899, #a855f7)",
+          background: "linear-gradient(135deg, #2563eb, #0284c7)",
           border: "none",
           borderRadius: 12,
           width: 38,
@@ -57,6 +57,7 @@ export default function Sidebar() {
           color: "white",
           fontSize: 20,
           cursor: "pointer",
+          boxShadow: "0 4px 14px rgba(37, 99, 235, 0.3)",
         }}
       >
         ☰
@@ -102,10 +103,11 @@ export default function Sidebar() {
                 padding: "10px 14px",
                 marginBottom: 4,
                 borderRadius: 8,
-                color: active ? "white" : "rgba(255,255,255,0.65)",
+                color: active ? "#ffffff" : "rgba(255,255,255,0.65)",
                 background: active
-                  ? "linear-gradient(135deg, rgba(236,72,153,0.25), rgba(168,85,247,0.25))"
+                  ? "linear-gradient(135deg, rgba(37,99,235,0.3), rgba(2,132,199,0.2))"
                   : "transparent",
+                borderLeft: active ? "3px solid #38bdf8" : "3px solid transparent",
                 textDecoration: "none",
                 fontSize: 14,
                 fontWeight: active ? 600 : 400,

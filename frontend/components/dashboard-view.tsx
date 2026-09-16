@@ -77,10 +77,10 @@ export default function DashboardView({ initialStats, initialHistory, token }: D
       {/* Time Range Filter Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-white/[0.02] border border-white/5 backdrop-blur-xl">
         <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-violet-400" />
+          <Clock className="h-4 w-4 text-blue-400" />
           <span className="text-sm font-medium text-slate-200">Time Range:</span>
           <span className="text-xs text-slate-500 font-mono">({currentRangeObj.sub})</span>
-          {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400 ml-1" />}
+          {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400 ml-1" />}
         </div>
 
         <div className="flex items-center gap-1.5 p-1 rounded-lg bg-black/40 border border-white/10 self-stretch sm:self-auto overflow-x-auto">
@@ -94,7 +94,7 @@ export default function DashboardView({ initialStats, initialHistory, token }: D
                 disabled={isLoading}
                 className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${
                   isActive
-                    ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
                 } disabled:opacity-50`}
               >
@@ -114,8 +114,8 @@ export default function DashboardView({ initialStats, initialHistory, token }: D
               <p className="text-3xl font-bold text-white">{stats.total}</p>
               <p className="text-[11px] text-slate-500 mt-1">{currentRangeObj.sub}</p>
             </div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-violet-500/10">
-              <Activity className="h-5 w-5 text-violet-400" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-500/10">
+              <Activity className="h-5 w-5 text-blue-400" />
             </div>
           </CardContent>
         </Card>

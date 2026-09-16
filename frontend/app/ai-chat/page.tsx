@@ -304,14 +304,14 @@ export default function AIChat() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-violet-600/10 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-rose-600/10 blur-3xl" />
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-blue-600/10 blur-3xl" />
+        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-sky-600/10 blur-3xl" />
       </div>
 
       <header className="relative border-b border-white/5 bg-white/[0.02] pl-20 pr-8 py-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-rose-500 shadow-lg shadow-violet-500/20">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/25">
               <Sparkles className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -348,7 +348,7 @@ export default function AIChat() {
                   key={action.key}
                   onClick={() => runAction(action.key, action.endpoint, action.label)}
                   disabled={!ip || loadingKey !== null}
-                  className="bg-gradient-to-br from-violet-600 to-rose-600 hover:opacity-90 text-white"
+                  className="bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20"
                 >
                   {loadingKey === action.key ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -364,7 +364,7 @@ export default function AIChat() {
         <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-base text-white flex items-center gap-2">
-              <Bug className="h-4 w-4 text-violet-400" />
+              <Bug className="h-4 w-4 text-blue-400" />
               Malware Investigation Agent
             </CardTitle>
           </CardHeader>
@@ -392,7 +392,7 @@ export default function AIChat() {
             <Button
               onClick={runMalwareInvestigate}
               disabled={(!hash && !filename && !malwareUrl) || loadingKey !== null}
-              className="mt-4 bg-gradient-to-br from-violet-600 to-rose-600 hover:opacity-90 text-white"
+              className="mt-4 bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20"
             >
               {loadingKey === "malware" ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Investigate
@@ -404,7 +404,7 @@ export default function AIChat() {
         <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
           <CardHeader>
             <CardTitle className="text-base text-white flex items-center gap-2">
-              <FileBarChart className="h-4 w-4 text-violet-400" />
+              <FileBarChart className="h-4 w-4 text-blue-400" />
               Executive Reporting Agent
             </CardTitle>
           </CardHeader>
@@ -415,7 +415,7 @@ export default function AIChat() {
                   key={period}
                   onClick={() => runExecReport(period)}
                   disabled={loadingKey !== null}
-                  className="bg-gradient-to-br from-violet-600 to-rose-600 hover:opacity-90 text-white capitalize"
+                  className="bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20 capitalize"
                 >
                   {loadingKey === `exec-${period}` ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -432,7 +432,7 @@ export default function AIChat() {
           <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
             <CardHeader>
               <CardTitle className="text-base text-white flex items-center gap-2">
-                <Shield className="h-4 w-4 text-violet-400" />
+                <Shield className="h-4 w-4 text-blue-400" />
                 {activeLabel || "Result"}
               </CardTitle>
             </CardHeader>
@@ -456,7 +456,7 @@ export default function AIChat() {
                   <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-white/5">
                     {(result.ip || ip) && (
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-slate-300">
-                        <Target className="h-3 w-3 text-violet-400" />
+                        <Target className="h-3 w-3 text-blue-400" />
                         {result.ip || ip}
                       </span>
                     )}
@@ -556,7 +556,7 @@ export default function AIChat() {
                   {Array.isArray(result.steps_taken) && result.steps_taken.length > 0 && (
                     <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3.5 my-3">
                       <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <Activity className="h-3.5 w-3.5 text-violet-400" />
+                        <Activity className="h-3.5 w-3.5 text-blue-400" />
                         Agent Execution Trace
                       </div>
                       <div className="space-y-1.5">
@@ -595,7 +595,7 @@ export default function AIChat() {
                           if (["ip", "verdict", "severity", "assigned_to", "steps_taken", "details", "findings", "proposed_action"].includes(k)) return null
                           return (
                             <div key={k} className="text-sm">
-                              <span className="text-violet-400 font-semibold uppercase text-xs tracking-wider mr-2">{k}:</span>
+                              <span className="text-blue-400 font-semibold uppercase text-xs tracking-wider mr-2">{k}:</span>
                               <span className="text-slate-300">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
                             </div>
                           )

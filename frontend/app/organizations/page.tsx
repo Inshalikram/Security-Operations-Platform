@@ -46,14 +46,14 @@ export default function OrganizationsPage() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-violet-600/10 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-rose-600/10 blur-3xl" />
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-blue-600/10 blur-3xl" />
+        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-sky-600/10 blur-3xl" />
       </div>
 
       <header className="relative border-b border-white/5 bg-white/[0.02] pl-20 pr-8 py-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-rose-500 shadow-lg shadow-violet-500/20">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/25">
               <Building2 className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -76,7 +76,7 @@ export default function OrganizationsPage() {
         <div className="flex justify-end">
           <Button
             onClick={() => setShowForm(!showForm)}
-            className="bg-gradient-to-br from-violet-600 to-rose-600 hover:opacity-90 text-white"
+            className="bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20"
           >
             <Plus className="h-4 w-4 mr-2" />
             Add Organization
@@ -88,7 +88,7 @@ export default function OrganizationsPage() {
             <CardContent className="pt-6 space-y-3">
               <Input placeholder="Organization name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="bg-white/5 border-white/10 text-white" />
               <Input placeholder="Description (optional)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="bg-white/5 border-white/10 text-white" />
-              <Button onClick={handleCreate} className="w-full bg-gradient-to-br from-violet-600 to-rose-600 text-white">
+              <Button onClick={handleCreate} className="w-full bg-blue-600 hover:bg-blue-500 text-white shadow-sm shadow-blue-500/20">
                 Save Organization
               </Button>
             </CardContent>

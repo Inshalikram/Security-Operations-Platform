@@ -80,7 +80,7 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
             placeholder="Search IP address..."
             value={searchTerm}
             onChange={handleSearchChange}
-            className="pl-9 bg-white/[0.03] border-white/10 text-slate-200 placeholder:text-slate-500 focus:border-violet-500/50"
+            className="pl-9 bg-white/[0.03] border-white/10 text-slate-200 placeholder:text-slate-500 focus:border-blue-500/50"
           />
         </div>
 
@@ -94,7 +94,7 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
                 onClick={() => handleVerdictChange(filter)}
                 className={`px-2.5 py-1 text-xs rounded-md font-medium capitalize transition-colors ${
                   isActive
-                    ? "bg-violet-600 text-white shadow-sm"
+                    ? "bg-blue-600 text-white shadow-sm shadow-blue-500/30"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
                 }`}
               >
@@ -144,7 +144,7 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
                   <TableCell className="text-right">
                     <Link
                       href={`/ai-chat?ip=${record.ip}`}
-                      className="inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 transition-colors group"
+                      className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors group"
                       title="Investigate in AI Chat"
                     >
                       <span>Analyze</span>
