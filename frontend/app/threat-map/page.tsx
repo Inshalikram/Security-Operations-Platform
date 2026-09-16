@@ -64,24 +64,24 @@ export default function ThreatMapPage() {
     const stats = countryData[name]
     if (!stats) return "#1e1e2e"           // no data — dark neutral
     const intensity = stats.total / maxTotal
-    // interpolate between Cyber Blue (#2563eb) and threat red (#ef4444) by intensity
-    const r = Math.round(37 + (239 - 37) * intensity)
-    const g = Math.round(99 + (68 - 99) * intensity)
-    const b = Math.round(235 + (68 - 235) * intensity)
+    // interpolate between #03045E and threat red (#ef4444) by intensity
+    const r = Math.round(3 + (239 - 3) * intensity)
+    const g = Math.round(4 + (68 - 4) * intensity)
+    const b = Math.round(94 + (68 - 94) * intensity)
     return `rgb(${r},${g},${b})`
   }
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-blue-600/10 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-sky-600/10 blur-3xl" />
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[#03045E]/40 blur-3xl" />
+        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-[#03045E]/30 blur-3xl" />
       </div>
 
       <header className="relative border-b border-white/5 bg-white/[0.02] pl-20 pr-8 py-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/25">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#03045E] border border-blue-400/30 shadow-lg shadow-[#03045E]/40">
               <Globe className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -184,7 +184,7 @@ export default function ThreatMapPage() {
 
                 <div className="flex items-center justify-center gap-2 mt-4 text-xs text-slate-500">
                   <span>Low activity</span>
-                  <div className="h-2 w-24 rounded-full bg-gradient-to-r from-blue-600 to-rose-600" />
+                  <div className="h-2 w-24 rounded-full bg-gradient-to-r from-[#03045E] to-rose-600" />
                   <span>High activity</span>
                 </div>
               </CardContent>

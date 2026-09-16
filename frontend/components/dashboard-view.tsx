@@ -87,8 +87,8 @@ export default function DashboardView({
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100 flex flex-col">
       {/* Ambient glow background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-blue-600/10 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-sky-600/10 blur-3xl" />
+        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[#03045E]/40 blur-3xl" />
+        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-[#03045E]/30 blur-3xl" />
       </div>
 
       {/* Slim Header with Narrow Integrated Time Range Selector */}
@@ -96,7 +96,7 @@ export default function DashboardView({
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Left Title */}
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-cyan-500 shadow-md shadow-blue-500/20">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#03045E] border border-blue-400/30 shadow-md shadow-[#03045E]/40">
               <Shield className="h-4 w-4 text-white" />
             </div>
             <div>
@@ -118,7 +118,7 @@ export default function DashboardView({
                   disabled={isLoading}
                   className={`px-2.5 py-0.5 text-[11px] rounded font-medium transition-all ${
                     isActive
-                      ? "bg-blue-600 text-white shadow-sm shadow-blue-500/30 font-semibold"
+                      ? "bg-[#03045E] text-white border border-blue-400/50 shadow-sm shadow-[#03045E]/50 font-semibold"
                       : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
                   } disabled:opacity-50`}
                 >
@@ -137,7 +137,7 @@ export default function DashboardView({
               </p>
               <p className="text-[10px] text-slate-500">Analyst</p>
             </div>
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 text-xs font-medium text-white shadow-sm">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#03045E] border border-blue-400/30 text-xs font-medium text-white shadow-sm">
               {(user?.name || "U").charAt(0)}
             </div>
             <Button
@@ -163,8 +163,8 @@ export default function DashboardView({
                 <p className="text-2xl font-bold text-white mt-0.5">{stats.total}</p>
                 <p className="text-[10px] text-slate-500 mt-0.5 font-mono">{currentRangeObj.fullLabel}</p>
               </div>
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
-                <Activity className="h-4 w-4 text-blue-400" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#03045E]/50 border border-[#03045E]/60">
+                <Activity className="h-4 w-4 text-blue-300" />
               </div>
             </CardContent>
           </Card>
