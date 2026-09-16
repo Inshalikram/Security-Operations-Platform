@@ -148,7 +148,7 @@ export default function AlertsPage() {
         <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-[#1c2e4a]/30 blur-3xl" />
       </div>
 
-      <header className="relative border-b border-white/5 bg-white/[0.02] pl-16 sm:pl-20 pr-4 sm:pr-8 py-2.5 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-white/5 bg-[#0a0a0f]/95 pl-16 sm:pl-20 pr-4 sm:pr-8 py-2.5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1c2e4a] border border-[#1c2e4a] shadow-md shadow-[#1c2e4a]/40">

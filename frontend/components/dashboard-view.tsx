@@ -129,7 +129,7 @@ export default function DashboardView({
       </div>
 
       {/* Slim Header with Narrow Integrated Time Range Selector */}
-      <header className="relative border-b border-white/5 bg-white/[0.02] pl-16 sm:pl-20 pr-4 sm:pr-8 py-2.5 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-white/5 bg-[#0a0a0f]/95 pl-16 sm:pl-20 pr-4 sm:pr-8 py-2.5 backdrop-blur-xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Left Title */}
           <div className="flex items-center gap-2.5">
