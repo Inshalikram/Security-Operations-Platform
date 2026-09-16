@@ -70,21 +70,21 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
   const endRecord = Math.min(safePage * pageSize, filteredRecords.length)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Search and Filters Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-slate-500" />
           <Input
             type="text"
             placeholder="Search IP address..."
             value={searchTerm}
             onChange={handleSearchChange}
-            className="pl-9 bg-white/[0.03] border-white/10 text-slate-200 placeholder:text-slate-500 focus:border-blue-500/50"
+            className="pl-8 h-7 text-xs bg-white/[0.03] border-white/10 text-slate-200 placeholder:text-slate-500 focus:border-blue-500/50"
           />
         </div>
 
-        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-white/[0.03] border border-white/10 self-stretch sm:self-auto overflow-x-auto">
+        <div className="flex items-center gap-1 p-0.5 rounded-lg bg-white/[0.03] border border-white/10 self-stretch sm:self-auto overflow-x-auto">
           {(["all", "malicious", "suspicious", "clean"] as const).map((filter) => {
             const isActive = verdictFilter === filter
             return (
@@ -92,7 +92,7 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
                 key={filter}
                 type="button"
                 onClick={() => handleVerdictChange(filter)}
-                className={`px-2.5 py-1 text-xs rounded-md font-medium capitalize transition-colors ${
+                className={`px-2 py-0.5 text-[11px] rounded font-medium capitalize transition-colors ${
                   isActive
                     ? "bg-blue-600 text-white shadow-sm shadow-blue-500/30"
                     : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
@@ -109,7 +109,7 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
       <div className="rounded-lg border border-white/5 overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent">
+            <TableRow className="border-white/5 bg-white/[0.02] hover:bg-transparent [&_th]:h-8 [&_th]:py-1.5 [&_th]:px-2.5 [&_th]:text-xs">
               <TableHead className="text-slate-400">IP Address</TableHead>
               <TableHead className="text-slate-400">Verdict</TableHead>
               <TableHead className="text-slate-400">Signals</TableHead>
@@ -120,25 +120,25 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
           <TableBody>
             {paginatedRecords.length === 0 ? (
               <TableRow className="border-white/5">
-                <TableCell colSpan={5} className="text-center text-slate-500 py-10">
+                <TableCell colSpan={5} className="text-center text-slate-500 py-6 text-xs">
                   {initialRecords.length === 0 ? "No records found in database" : "No matching IPs found"}
                 </TableCell>
               </TableRow>
             ) : (
               paginatedRecords.map((record, i) => (
-                <TableRow key={`${record.ip}-${record.checked_at}-${i}`} className="border-white/5 hover:bg-white/[0.03] transition-colors">
-                  <TableCell className="font-mono text-sm text-slate-200 font-medium">
+                <TableRow key={`${record.ip}-${record.checked_at}-${i}`} className="border-white/5 hover:bg-white/[0.03] transition-colors [&_td]:py-1.5 [&_td]:px-2.5">
+                  <TableCell className="font-mono text-xs text-slate-200 font-medium">
                     {record.ip}
                   </TableCell>
                   <TableCell>
-                    <Badge className={verdictBadgeClass(record.verdict)} variant="outline">
+                    <Badge className={`${verdictBadgeClass(record.verdict)} text-[10px] px-1.5 py-0`} variant="outline">
                       {record.verdict}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-slate-400 font-mono text-xs">
+                  <TableCell className="text-slate-400 font-mono text-[11px]">
                     {record.malicious_signals}
                   </TableCell>
-                  <TableCell className="text-xs text-slate-400 font-mono">
+                  <TableCell className="text-[11px] text-slate-400 font-mono">
                     <FormattedTime date={record.checked_at} />
                   </TableCell>
                   <TableCell className="text-right">
@@ -148,7 +148,7 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
                       title="Investigate in AI Chat"
                     >
                       <span>Analyze</span>
-                      <ArrowUpRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                      <ArrowUpRight className="h-3 w-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                     </Link>
                   </TableCell>
                 </TableRow>
@@ -160,37 +160,37 @@ export default function DashboardTable({ initialRecords }: DashboardTableProps) 
 
       {/* Pagination Controls */}
       {filteredRecords.length > 0 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400 pt-1">
-          <div>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400 pt-0.5">
+          <div className="text-[11px]">
             Showing <span className="text-slate-200 font-medium">{startRecord}</span> to{" "}
             <span className="text-slate-200 font-medium">{endRecord}</span> of{" "}
             <span className="text-slate-200 font-medium">{filteredRecords.length}</span> threat checks
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <Button
               variant="outline"
-              size="sm"
+              size="xs"
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={safePage <= 1}
-              className="border-white/10 bg-white/[0.02] text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
+              className="border-white/10 bg-white/[0.02] text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 h-6 px-2 text-xs"
             >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Previous
+              <ChevronLeft className="h-3.5 w-3.5 mr-0.5" />
+              Prev
             </Button>
-            <span className="px-2 font-mono text-slate-400">
-              Page <span className="text-slate-200 font-medium">{safePage}</span> of{" "}
+            <span className="px-1.5 font-mono text-[11px] text-slate-400">
+              <span className="text-slate-200 font-medium">{safePage}</span> /{" "}
               <span className="text-slate-200 font-medium">{totalPages}</span>
             </span>
             <Button
               variant="outline"
-              size="sm"
+              size="xs"
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
               disabled={safePage >= totalPages}
-              className="border-white/10 bg-white/[0.02] text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40"
+              className="border-white/10 bg-white/[0.02] text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-40 h-6 px-2 text-xs"
             >
               Next
-              <ChevronRight className="h-4 w-4 ml-1" />
+              <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
             </Button>
           </div>
         </div>

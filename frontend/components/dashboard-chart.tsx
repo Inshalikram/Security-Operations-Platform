@@ -6,14 +6,14 @@ type ChartData = { name: string; value: number; color: string }
 
 export default function DashboardChart({ data }: { data: ChartData[] }) {
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <ResponsiveContainer width="100%" height={180}>
       <PieChart>
         <Pie
           data={data}
           dataKey="value"
           nameKey="name"
-          innerRadius={50}
-          outerRadius={80}
+          innerRadius={44}
+          outerRadius={70}
           paddingAngle={2}
         >
           {data.map((entry, i) => (

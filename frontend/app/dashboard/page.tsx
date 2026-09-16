@@ -1,7 +1,5 @@
-import { auth, signOut } from "@/auth"
+import { auth } from "@/auth"
 import { redirect } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Shield } from "lucide-react"
 import DashboardView, { ThreatStats } from "@/components/dashboard-view"
 import { ThreatRecord } from "@/components/dashboard-table"
 
@@ -50,56 +48,11 @@ export default async function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
-      {/* Ambient glow background */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-blue-600/10 blur-3xl" />
-        <div className="absolute top-40 right-0 h-96 w-96 rounded-full bg-sky-600/10 blur-3xl" />
-      </div>
-
-      {/* Header */}
-      <header className="relative border-b border-white/5 bg-white/[0.02] pl-20 pr-8 py-5 backdrop-blur-xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/25">
-              <Shield className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold leading-tight text-white">SOC Dashboard</h1>
-              <p className="text-xs text-slate-500">Security Operations Platform</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="text-sm font-medium leading-tight text-white">
-                {session.user?.name || session.user?.email}
-              </p>
-              <p className="text-xs text-slate-500">Analyst</p>
-            </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 shadow-md shadow-blue-500/20 text-sm font-medium text-white">
-              {(session.user?.name || "U").charAt(0)}
-            </div>
-            <form
-              action={async () => {
-                "use server"
-                await signOut({ redirectTo: "/" })
-              }}
-            >
-              <Button type="submit" variant="outline" size="sm" className="border-white/10 text-slate-300 hover:bg-white/5">
-                Sign Out
-              </Button>
-            </form>
-          </div>
-        </div>
-      </header>
-
-      <main className="relative p-8">
-        <DashboardView
-          initialStats={initialStats}
-          initialHistory={history}
-          token={token}
-        />
-      </main>
-    </div>
+    <DashboardView
+      initialStats={initialStats}
+      initialHistory={history}
+      token={token}
+      user={session.user}
+    />
   )
 }
