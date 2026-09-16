@@ -3,7 +3,8 @@ import Keycloak from "next-auth/providers/keycloak"
 
 async function refreshAccessToken(token: any) {
   try {
-    const url = `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER}/protocol/openid-connect/token`
+    const issuer = process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER || process.env.AUTH_KEYCLOAK_ISSUER
+    const url = `${issuer}/protocol/openid-connect/token`
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -44,9 +45,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
        url: `${process.env.AUTH_KEYCLOAK_ISSUER}/protocol/openid-connect/auth`,
        params: { scope: "openid email profile offline_access" },
       },
-      token: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER}/protocol/openid-connect/token`,
-      userinfo: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER}/protocol/openid-connect/userinfo`,
-      jwks_endpoint: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER}/protocol/openid-connect/certs`,
+      token: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER || process.env.AUTH_KEYCLOAK_ISSUER}/protocol/openid-connect/token`,
+      userinfo: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER || process.env.AUTH_KEYCLOAK_ISSUER}/protocol/openid-connect/userinfo`,
+      jwks_endpoint: `${process.env.AUTH_KEYCLOAK_INTERNAL_ISSUER || process.env.AUTH_KEYCLOAK_ISSUER}/protocol/openid-connect/certs`,
     }),
   ],
   callbacks: {
