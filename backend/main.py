@@ -962,14 +962,25 @@ def unified_threat_check_endpoint(
 
 @app.get("/threat-intel/stats")
 def get_threat_intel_stats(
+    time_range: str = "all",
     scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
     user=Depends(verify_token),
 ):
-    total = scoped_db.query(Indicator).count()
-    malicious = scoped_db.query(Indicator).filter(Indicator.verdict == "malicious").count()
-    suspicious = scoped_db.query(Indicator).filter(Indicator.verdict == "suspicious").count()
-    clean = scoped_db.query(Indicator).filter(Indicator.verdict == "clean").count()
+    query = scoped_db.query(Indicator)
+    now = datetime.utcnow()
+    if time_range == "24h":
+        query = query.filter(Indicator.checked_at >= now - timedelta(hours=24))
+    elif time_range == "7d":
+        query = query.filter(Indicator.checked_at >= now - timedelta(days=7))
+    elif time_range == "30d":
+        query = query.filter(Indicator.checked_at >= now - timedelta(days=30))
+
+    total = query.count()
+    malicious = query.filter(Indicator.verdict == "malicious").count()
+    suspicious = query.filter(Indicator.verdict == "suspicious").count()
+    clean = query.filter(Indicator.verdict == "clean").count()
     return {
+        "time_range": time_range,
         "total": total,
         "malicious": malicious,
         "suspicious": suspicious,
@@ -979,11 +990,21 @@ def get_threat_intel_stats(
 
 @app.get("/threat-intel/history")
 def get_history(
+    time_range: str = "all",
     limit: int = 100,
     scoped_db: TenantScopedSession = Depends(get_tenant_scoped_db),
     user=Depends(verify_token),
 ):
-    records = scoped_db.query(Indicator).order_by(Indicator.checked_at.desc()).limit(limit).all()
+    query = scoped_db.query(Indicator)
+    now = datetime.utcnow()
+    if time_range == "24h":
+        query = query.filter(Indicator.checked_at >= now - timedelta(hours=24))
+    elif time_range == "7d":
+        query = query.filter(Indicator.checked_at >= now - timedelta(days=7))
+    elif time_range == "30d":
+        query = query.filter(Indicator.checked_at >= now - timedelta(days=30))
+
+    records = query.order_by(Indicator.checked_at.desc()).limit(limit).all()
     return [
         {
             "id": r.id,
@@ -992,9 +1013,10 @@ def get_history(
             "malicious_signals": r.malicious_signals,
             "sources_checked": r.sources_checked,
             "tenant_id": r.tenant_id,
-            "checked_at": r.checked_at.isoformat()
+            "checked_at": r.checked_at.isoformat() if r.checked_at else datetime.utcnow().isoformat(),
         } for r in records
     ]
+
 
 
 # ══════════════════════════════════════════════════════════════════════════

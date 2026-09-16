@@ -1,17 +1,9 @@
 import { auth, signOut } from "@/auth"
 import { redirect } from "next/navigation"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Shield, AlertTriangle, ShieldAlert, Activity } from "lucide-react"
-import DashboardChart from "@/components/dashboard-chart"
-import DashboardTable, { ThreatRecord } from "@/components/dashboard-table"
-
-type ThreatStats = {
-  total: number
-  malicious: number
-  suspicious: number
-  clean: number
-}
+import { Shield } from "lucide-react"
+import DashboardView, { ThreatStats } from "@/components/dashboard-view"
+import { ThreatRecord } from "@/components/dashboard-table"
 
 async function getStats(token: string): Promise<ThreatStats | null> {
   try {
@@ -44,21 +36,18 @@ export default async function Dashboard() {
   if (!session) redirect("/")
   if (session.error === "RefreshAccessTokenError") redirect("/api/auth/signin")
 
+  const token = session.accessToken as string
   const [statsData, history] = await Promise.all([
-    getStats(session.accessToken as string),
-    getHistory(session.accessToken as string),
+    getStats(token),
+    getHistory(token),
   ])
 
-  const total = statsData ? statsData.total : history.length
-  const malicious = statsData ? statsData.malicious : history.filter((h) => h.verdict === "malicious").length
-  const suspicious = statsData ? statsData.suspicious : history.filter((h) => h.verdict === "suspicious").length
-  const clean = statsData ? statsData.clean : history.filter((h) => h.verdict === "clean").length
-
-  const chartData = [
-    { name: "Malicious", value: malicious, color: "#fb7185" },
-    { name: "Suspicious", value: suspicious, color: "#fb923c" },
-    { name: "Clean", value: clean, color: "#2dd4bf" },
-  ]
+  const initialStats: ThreatStats = statsData || {
+    total: history.length,
+    malicious: history.filter((h) => h.verdict === "malicious").length,
+    suspicious: history.filter((h) => h.verdict === "suspicious").length,
+    clean: history.filter((h) => h.verdict === "clean").length,
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
@@ -104,79 +93,12 @@ export default async function Dashboard() {
         </div>
       </header>
 
-      <main className="relative p-8 space-y-6">
-        {/* Stat cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
-            <CardContent className="flex items-center justify-between pt-6">
-              <div>
-                <p className="text-sm text-slate-500">Total Checked</p>
-                <p className="text-3xl font-bold text-white">{total}</p>
-              </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-violet-500/10">
-                <Activity className="h-5 w-5 text-violet-400" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
-            <CardContent className="flex items-center justify-between pt-6">
-              <div>
-                <p className="text-sm text-slate-500">Malicious</p>
-                <p className="text-3xl font-bold text-rose-400">{malicious}</p>
-              </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-rose-500/10">
-                <ShieldAlert className="h-5 w-5 text-rose-400" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
-            <CardContent className="flex items-center justify-between pt-6">
-              <div>
-                <p className="text-sm text-slate-500">Suspicious</p>
-                <p className="text-3xl font-bold text-orange-400">{suspicious}</p>
-              </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-orange-500/10">
-                <AlertTriangle className="h-5 w-5 text-orange-400" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-white/5 bg-white/[0.03] backdrop-blur-xl">
-            <CardContent className="flex items-center justify-between pt-6">
-              <div>
-                <p className="text-sm text-slate-500">Clean</p>
-                <p className="text-3xl font-bold text-teal-400">{clean}</p>
-              </div>
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-teal-500/10">
-                <Shield className="h-5 w-5 text-teal-400" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Chart */}
-          <Card className="lg:col-span-1 border-white/5 bg-white/[0.03] backdrop-blur-xl">
-            <CardHeader>
-              <CardTitle className="text-base text-white">Verdict Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DashboardChart data={chartData} />
-            </CardContent>
-          </Card>
-
-          {/* Table */}
-          <Card className="lg:col-span-2 border-white/5 bg-white/[0.03] backdrop-blur-xl">
-            <CardHeader>
-              <CardTitle className="text-base text-white">Recent Threat Checks</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DashboardTable initialRecords={history} />
-            </CardContent>
-          </Card>
-        </div>
+      <main className="relative p-8">
+        <DashboardView
+          initialStats={initialStats}
+          initialHistory={history}
+          token={token}
+        />
       </main>
     </div>
   )
