@@ -1,0 +1,1 @@
+{"status":"healthy","checks":{"database":"up","redis":"up"}}

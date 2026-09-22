@@ -1,0 +1,1 @@
+{"status":"degraded","checks":{"database":"up","redis":"down: Error -3 connecting to redis:6379. Temporary failure in name resolution."}}
