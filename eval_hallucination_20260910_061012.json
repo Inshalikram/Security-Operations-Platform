@@ -1,0 +1,513 @@
+{
+  "summary": {
+    "run_at": "2026-09-10T06:10:12.143256",
+    "provider": "ollama",
+    "total_cases": 15,
+    "failed_cases": 3,
+    "judged_cases": 12,
+    "cases_with_hallucination": 7,
+    "hallucination_rate": 0.583,
+    "avg_groundedness_score": 42.5,
+    "verdict_accuracy": 1.0,
+    "avg_latency_seconds": 145.61,
+    "hallucinated_case_ids": [
+      "case_01",
+      "case_02",
+      "case_05",
+      "case_07",
+      "case_11",
+      "case_14",
+      "case_15"
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "case_01",
+      "ip": "77.90.183.109",
+      "verdict": "suspicious",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "mitre",
+          "title": "T1583 Acquire Infrastructure"
+        },
+        {
+          "type": "mitre",
+          "title": "T1110 Brute Force"
+        }
+      ],
+      "judge": {
+        "hallucinated": true,
+        "hallucinated_claims": [
+          "T1046 Network Service Discovery: Adversaries scan a target network to gather information about running services, often as reconnaissance before exploitation"
+        ],
+        "groundedness_score": 0,
+        "notes": "This claim is not supported by the source data, as there is no evidence of the IP scanning a target network."
+      },
+      "explanation_preview": "Based on the provided data and knowledge base entries, this IP address is associated with a suspicious verdict and a single malicious signal, with a previous history entry on the same IP address 16 months prior. \n\nThe relevant MITRE ATT&CK techniques associated with this IP address are:\n- T1046: Net",
+      "failed": false,
+      "latency_seconds": 153.74
+    },
+    {
+      "case_id": "case_02",
+      "ip": "46.8.31.84",
+      "verdict": "malicious",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "mitre",
+          "title": "T1583 Acquire Infrastructure"
+        },
+        {
+          "type": "mitre",
+          "title": "T1204 User Execution"
+        }
+      ],
+      "judge": {
+        "hallucinated": true,
+        "hallucinated_claims": [
+          "recurring threat pattern"
+        ],
+        "groundedness_score": 0,
+        "notes": "The explanation states that the current finding is a recurring threat pattern, but the source data only provides a single previous incident on the same IP address, without any indication that this is a recurring pattern."
+      },
+      "explanation_preview": "Based on the provided data, the current finding is a recurring threat pattern.\n\nThe IP address 46.8.31.84 was previously identified as malicious on 2026-09-10T05:09:01.767453, and now it has been flagged again. \n\nThe relevant playbook for this situation is the \"Malicious IP Response Playbook\", speci",
+      "failed": false,
+      "latency_seconds": 131.94
+    },
+    {
+      "case_id": "case_03",
+      "ip": "198.74.56.46",
+      "verdict": "malicious",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "mitre",
+          "title": "T1595 Active Scanning"
+        },
+        {
+          "type": "mitre",
+          "title": "T1110 Brute Force"
+        }
+      ],
+      "judge": {
+        "hallucinated": false,
+        "hallucinated_claims": [
+          "prioritization implications: Given the historical evidence and current findings, this IP should be considered a high-priority threat",
+          "Given the historical evidence and current findings, this IP should be considered a high-priority threat"
+        ],
+        "groundedness_score": 0,
+        "notes": "The explanation does not introduce any new information not present in the source data, but rather rephrases existing information to support a conclusion."
+      },
+      "explanation_preview": "Based on the provided data, the IP address 198.74.56.46 has been flagged as malicious in the past, with a similar verdict on the current finding. The Past history indicates that this IP was previously detected as malicious on the same date (2026-09-10T04:59:56.591359).\n\nAccording to the relevant kno",
+      "failed": false,
+      "latency_seconds": 186.73
+    },
+    {
+      "case_id": "case_04",
+      "ip": "52.54.108.140",
+      "failed": true,
+      "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+      "latency_seconds": 28.23
+    },
+    {
+      "case_id": "case_05",
+      "ip": "3.99.164.19",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1595 Active Scanning"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "playbook",
+          "title": "Suspicious Outbound C2 Traffic Playbook"
+        }
+      ],
+      "judge": {
+        "hallucinated": true,
+        "hallucinated_claims": [
+          "This playbook is not directly applicable, as the IP has been previously verified clean."
+        ],
+        "groundedness_score": 80,
+        "notes": "The AI claim is not entirely accurate because the playbook is not explicitly stated as not applicable. However, the claim is a minor point and does not significantly impact the overall accuracy of the explanation."
+      },
+      "explanation_preview": "Based on the provided data, this IP has been previously verified clean with no malicious signals on two separate occasions (2026-09-10T05:40:49.253719 and 2026-09-10T04:30:45.544480). The current finding also confirms the IP as clean with no malicious signals.\n\nThe relevant knowledge base entries in",
+      "failed": false,
+      "latency_seconds": 188.54
+    },
+    {
+      "case_id": "case_06",
+      "ip": "15.223.77.245",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "mitre",
+          "title": "T1595 Active Scanning"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1583 Acquire Infrastructure"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        }
+      ],
+      "judge": {
+        "hallucinated": false,
+        "hallucinated_claims": [],
+        "groundedness_score": 100,
+        "notes": "Explanation is entirely supported by the source data, with no fabricated claims or assumptions beyond the evidence shown."
+      },
+      "explanation_preview": "Based on the provided data and relevant knowledge base entries, the current finding of IP 15.223.77.245 with a clean verdict and 0 malicious signals does not indicate a recurring threat pattern.\n\nHowever, the past history of this IP shows two clean verdicts with 0 malicious signals on the same day (",
+      "failed": false,
+      "latency_seconds": 133.93
+    },
+    {
+      "case_id": "case_07",
+      "ip": "3.96.162.152",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "mitre",
+          "title": "T1595 Active Scanning"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "mitre",
+          "title": "T1562 Impair Defenses"
+        }
+      ],
+      "judge": {
+        "hallucinated": true,
+        "hallucinated_claims": [
+          "The IP 3.96.162.152 has shown a recurring pattern of clean verdicts with no malicious signals detected."
+        ],
+        "groundedness_score": 0,
+        "notes": "The explanation invents a pattern of clean verdicts without supporting evidence beyond the provided source data."
+      },
+      "explanation_preview": "Based on the provided data, the IP 3.96.162.152 has shown a recurring pattern of clean verdicts with no malicious signals detected.\n\nPast history:\n- 2026-09-10T05:46:28.114857: verdict=clean, signals=0\n- 2026-09-10T04:30:43.762040: verdict=clean, signals=0\n\nRelevant knowledge base entries:\n- [playbo",
+      "failed": false,
+      "latency_seconds": 205.43
+    },
+    {
+      "case_id": "case_08",
+      "ip": "3.96.216.86",
+      "failed": true,
+      "error": "500 Server Error: Internal Server Error for url: http://host.docker.internal:11434/api/generate",
+      "latency_seconds": 12.6
+    },
+    {
+      "case_id": "case_09",
+      "ip": "99.79.70.208",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1595 Active Scanning"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "mitre",
+          "title": "T1110 Brute Force"
+        }
+      ],
+      "judge": {
+        "hallucinated": false,
+        "hallucinated_claims": [
+          "recurring pattern"
+        ],
+        "groundedness_score": 0,
+        "notes": "The explanation claims the IP has a 'recurring pattern' without basis in the provided historical events."
+      },
+      "explanation_preview": "Based on the provided data and knowledge base entries, the current finding of IP 99.79.70.208 with a clean verdict and 0 malicious signals is a recurring pattern.\n\nHistorical events:\n- 2026-09-10T05:50:21.890080: verdict=clean, signals=0\n- 2026-09-10T04:25:53.240681: verdict=clean, signals=0\n\nReleva",
+      "failed": false,
+      "latency_seconds": 183.79
+    },
+    {
+      "case_id": "case_10",
+      "ip": "3.96.191.114",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "playbook",
+          "title": "Suspicious Outbound C2 Traffic Playbook"
+        },
+        {
+          "type": "mitre",
+          "title": "T1110 Brute Force"
+        }
+      ],
+      "judge": {
+        "hallucinated": false,
+        "hallucinated_claims": [],
+        "groundedness_score": 90,
+        "notes": "The explanation does not introduce any new information not supported by the source data, but the prioritization section's conclusion about the IP address being 'unlikely to be a significant threat' is not explicitly supported by the provided data."
+      },
+      "explanation_preview": "Based on the provided data and knowledge base entries, the following observations can be made:\n\n1. The IP address (3.96.191.114) has been identified as clean multiple times in the past (2026-09-10T05:53:34.026014 and 2026-09-10T04:21:15.146877), with no malicious signals detected.\n2. The current fin",
+      "failed": false,
+      "latency_seconds": 167.26
+    },
+    {
+      "case_id": "case_11",
+      "ip": "3.99.155.30",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "mitre",
+          "title": "T1595 Active Scanning"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "mitre",
+          "title": "T1110 Brute Force"
+        }
+      ],
+      "judge": {
+        "hallucinated": true,
+        "hallucinated_claims": [
+          "Although there is no clear evidence of brute force techniques",
+          "Given the lack of clear malicious activity",
+          "I would recommend continuing to monitor this IP for any future malicious activity and re-evaluating the threat level if new evidence emerges."
+        ],
+        "groundedness_score": 70,
+        "notes": "The explanation assumes potential abuse-confidence based on the IP's query history without direct evidence of brute force techniques."
+      },
+      "explanation_preview": "Based on the provided data, the current finding of IP 3.99.155.30 with a clean verdict and 0 malicious signals does not indicate a recurring threat pattern. However, there is a pattern in the history:\n\n- Two events occurred on the same day, 2026-09-10, with the same timestamp (05:56:29.026512 and 04",
+      "failed": false,
+      "latency_seconds": 226.81
+    },
+    {
+      "case_id": "case_12",
+      "ip": "3.99.169.162",
+      "failed": true,
+      "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+      "latency_seconds": 5.88
+    },
+    {
+      "case_id": "case_13",
+      "ip": "15.223.198.85",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "mitre",
+          "title": "T1595 Active Scanning"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "mitre",
+          "title": "T1583 Acquire Infrastructure"
+        }
+      ],
+      "judge": {
+        "hallucinated": false,
+        "hallucinated_claims": [
+          "The IP address 15.223.198.85 has not exhibited malicious behavior in the past"
+        ],
+        "groundedness_score": 100,
+        "notes": "The source data shows a consistent history of clean verdicts since 2026-09-10T06:00:38.272574 and 2026-09-10T04:16:02.365780, contradicting the claim that it has not exhibited malicious behavior in the past."
+      },
+      "explanation_preview": "Based on the provided data and knowledge base entries, the following analysis can be performed:\n\n1. The IP address 15.223.198.85 has a clean verdict with 0 malicious signals, and it has a consistent history of clean verdicts with 0 malicious signals since 2026-09-10T06:00:38.272574 and 2026-09-10T04",
+      "failed": false,
+      "latency_seconds": 187.8
+    },
+    {
+      "case_id": "case_14",
+      "ip": "3.96.221.82",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1595 Active Scanning"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "mitre",
+          "title": "T1583 Acquire Infrastructure"
+        }
+      ],
+      "judge": {
+        "hallucinated": true,
+        "hallucinated_claims": [
+          "Given the recurring clean verdicts on the same date, it may indicate that the IP is being scanned or probed by an attacker"
+        ],
+        "groundedness_score": 60,
+        "notes": "The source data does not mention scanning or probing by an attacker, but rather that the IP has been flagged as clean multiple times with the same timestamp."
+      },
+      "explanation_preview": "Based on the provided data, the IP 3.96.221.82 has been flagged as clean with no malicious signals detected, but it has a recurring history of clean verdicts with the same timestamp.\n\nRelevant information:\n\n- The IP has been flagged as clean multiple times on the same date, indicating a possible pat",
+      "failed": false,
+      "latency_seconds": 167.19
+    },
+    {
+      "case_id": "case_15",
+      "ip": "35.182.31.241",
+      "verdict": "clean",
+      "verdict_match": true,
+      "knowledge_sources_used": [
+        {
+          "type": "playbook",
+          "title": "Malicious IP Response Playbook"
+        },
+        {
+          "type": "sigma_rule",
+          "title": "Suspicious Outbound Connection to Known Malicious IP"
+        },
+        {
+          "type": "mitre",
+          "title": "T1046 Network Service Discovery"
+        },
+        {
+          "type": "playbook",
+          "title": "Suspicious Outbound C2 Traffic Playbook"
+        },
+        {
+          "type": "playbook",
+          "title": "Brute Force / Credential Stuffing Playbook"
+        }
+      ],
+      "judge": {
+        "hallucinated": true,
+        "hallucinated_claims": [
+          "There is no indication of a recurring threat pattern"
+        ],
+        "groundedness_score": 10,
+        "notes": "The explanation claims there is no indication of a recurring threat pattern, but the data shows the IP has been flagged as clean on two separate occasions, which suggests some level of monitoring and potential for future issues."
+      },
+      "explanation_preview": "Based on the provided data, the current finding indicates that the IP address 35.182.31.241 has been previously verified clean with no malicious signals detected. The IP has a recent history of being flagged as clean on two separate occasions (2026-09-10T06:06:48.921117 and 2026-09-10T04:15:58.76085",
+      "failed": false,
+      "latency_seconds": 204.35
+    }
+  ]
+}

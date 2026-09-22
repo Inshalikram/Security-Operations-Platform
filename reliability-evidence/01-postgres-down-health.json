@@ -1,0 +1,1 @@
+{"status":"degraded","checks":{"database":"down: (psycopg2.OperationalError) could not translate host name \"postgres\" to address: Temporary failure in name resolution\n\n(Background on this error at: https://sqlalche.me/e/20/e3q8)","redis":"up"}}

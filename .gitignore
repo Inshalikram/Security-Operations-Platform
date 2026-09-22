@@ -44,4 +44,5 @@ reports/
 *.log
 *.db
 gitleaks_report.json
-scripts/dr_backups/
+scripts/dr_backups/backup.sql
+*.sql
