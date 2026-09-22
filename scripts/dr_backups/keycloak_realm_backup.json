@@ -1,0 +1,72 @@
+{
+  "clients": [
+    {
+      "clientId": "soc-frontend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true
+    },
+    {
+      "bearerOnly": true,
+      "clientId": "soc-backend",
+      "enabled": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "thehive",
+      "enabled": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "grafana",
+      "enabled": true,
+      "protocol": "openid-connect"
+    }
+  ],
+  "enabled": true,
+  "loginWithEmailAllowed": true,
+  "realm": "soc-platform",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      {
+        "description": "Platform administrator",
+        "name": "admin"
+      },
+      {
+        "description": "SOC Tier 1/2/3 Security Analyst",
+        "name": "analyst"
+      },
+      {
+        "description": "Read-only auditor",
+        "name": "viewer"
+      },
+      {
+        "description": "Incident Response Commander",
+        "name": "soc_lead"
+      }
+    ]
+  },
+  "sslRequired": "external",
+  "users": [
+    {
+      "email": "admin@soc.internal",
+      "emailVerified": true,
+      "enabled": true,
+      "realmRoles": [
+        "admin",
+        "soc_lead"
+      ],
+      "username": "sop_admin"
+    },
+    {
+      "email": "alice@soc.internal",
+      "emailVerified": true,
+      "enabled": true,
+      "realmRoles": [
+        "analyst"
+      ],
+      "username": "analyst_alice"
+    }
+  ]
+}

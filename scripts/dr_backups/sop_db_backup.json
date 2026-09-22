@@ -1,0 +1,553 @@
+{
+  "agent_actions": [
+    {
+      "action_name": "analyze_ip",
+      "agent_name": "TriageAgent",
+      "confidence": null,
+      "decided_at": null,
+      "decided_by": null,
+      "executed_at": null,
+      "id": 1,
+      "params": null,
+      "reasoning": "Automated enrichment complete",
+      "requested_at": "2026-09-12T05:36:25.972022",
+      "result": null,
+      "status": "executed",
+      "target": "198.51.100.23",
+      "tenant_id": "tenant-alpha"
+    },
+    {
+      "action_name": "block_ip",
+      "agent_name": "triage_agent",
+      "confidence": "0.95",
+      "decided_at": null,
+      "decided_by": null,
+      "executed_at": null,
+      "id": 2,
+      "params": {
+        "ip_address": "198.51.100.23"
+      },
+      "reasoning": "Active C2 beaconing detected",
+      "requested_at": "2026-09-12T05:40:11.563972",
+      "result": null,
+      "status": "pending",
+      "target": "198.51.100.23",
+      "tenant_id": "default"
+    },
+    {
+      "action_name": "block_ip",
+      "agent_name": "triage_agent",
+      "confidence": "0.9",
+      "decided_at": "2026-09-12T05:40:19.945683",
+      "decided_by": "soc_lead",
+      "executed_at": "2026-09-12T05:40:19.945683",
+      "id": 3,
+      "params": {
+        "ip_address": "203.0.113.50"
+      },
+      "reasoning": "DDoS source",
+      "requested_at": "2026-09-12T05:40:19.938994",
+      "result": {
+        "blocked_ip": "203.0.113.50",
+        "method": "simulated_firewall",
+        "status": "blocked"
+      },
+      "status": "executed",
+      "target": "203.0.113.50",
+      "tenant_id": "default"
+    },
+    {
+      "action_name": "block_ip",
+      "agent_name": "triage_agent",
+      "confidence": "0.85",
+      "decided_at": "2026-09-12T05:40:28.238089",
+      "decided_by": "soc_analyst",
+      "executed_at": null,
+      "id": 4,
+      "params": {
+        "ip_address": "192.0.2.1"
+      },
+      "reasoning": "Test false positive | Rejected by soc_analyst: Known CDN IP",
+      "requested_at": "2026-09-12T05:40:28.231770",
+      "result": null,
+      "status": "rejected",
+      "target": "192.0.2.1",
+      "tenant_id": "default"
+    },
+    {
+      "action_name": "block_ip",
+      "agent_name": "triage_agent",
+      "confidence": "0.9",
+      "decided_at": "2026-09-12T05:40:46.113423",
+      "decided_by": "test_user",
+      "executed_at": "2026-09-12T05:40:46.113423",
+      "id": 5,
+      "params": {
+        "ip_address": "198.51.100.99"
+      },
+      "reasoning": "API test incident",
+      "requested_at": "2026-09-12T05:40:46.085005",
+      "result": {
+        "blocked_ip": "198.51.100.99",
+        "method": "simulated_firewall",
+        "status": "blocked"
+      },
+      "status": "executed",
+      "target": "198.51.100.99",
+      "tenant_id": "default"
+    }
+  ],
+  "agent_audit_log": [
+    {
+      "agent_name": "ContainmentAgent",
+      "approver": null,
+      "confidence": 1.0,
+      "created_at": "2026-09-12T05:36:25.959423",
+      "decision": "queued_for_approval",
+      "id": 1,
+      "reasoning": "Requires analyst sign-off",
+      "result": null,
+      "risk_score": 0.85,
+      "tenant_id": "tenant-alpha",
+      "tool_input": {
+        "ip": "198.51.100.23"
+      },
+      "tool_name": "block_ip"
+    },
+    {
+      "agent_name": "triage_agent",
+      "approver": null,
+      "confidence": 0.95,
+      "created_at": "2026-09-12T05:40:11.570636",
+      "decision": "queued_for_approval",
+      "id": 2,
+      "reasoning": "Active C2 beaconing detected",
+      "result": {
+        "pending_approval_id": 2
+      },
+      "risk_score": 0.85,
+      "tenant_id": "default",
+      "tool_input": {
+        "ip_address": "198.51.100.23"
+      },
+      "tool_name": "block_ip"
+    },
+    {
+      "agent_name": "triage_agent",
+      "approver": null,
+      "confidence": 0.9,
+      "created_at": "2026-09-12T05:40:19.942683",
+      "decision": "queued_for_approval",
+      "id": 3,
+      "reasoning": "DDoS source",
+      "result": {
+        "pending_approval_id": 3
+      },
+      "risk_score": 0.85,
+      "tenant_id": "default",
+      "tool_input": {
+        "ip_address": "203.0.113.50"
+      },
+      "tool_name": "block_ip"
+    },
+    {
+      "agent_name": "triage_agent",
+      "approver": "soc_lead",
+      "confidence": 0.9,
+      "created_at": "2026-09-12T05:40:19.945683",
+      "decision": "approved",
+      "id": 4,
+      "reasoning": "Approved by soc_lead. Prior reasoning: DDoS source",
+      "result": {
+        "blocked_ip": "203.0.113.50",
+        "method": "simulated_firewall",
+        "status": "blocked"
+      },
+      "risk_score": 0.85,
+      "tenant_id": "default",
+      "tool_input": {
+        "ip_address": "203.0.113.50"
+      },
+      "tool_name": "block_ip"
+    },
+    {
+      "agent_name": "triage_agent",
+      "approver": null,
+      "confidence": 0.85,
+      "created_at": "2026-09-12T05:40:28.231770",
+      "decision": "queued_for_approval",
+      "id": 5,
+      "reasoning": "Test false positive",
+      "result": {
+        "pending_approval_id": 4
+      },
+      "risk_score": 0.85,
+      "tenant_id": "default",
+      "tool_input": {
+        "ip_address": "192.0.2.1"
+      },
+      "tool_name": "block_ip"
+    },
+    {
+      "agent_name": "triage_agent",
+      "approver": "soc_analyst",
+      "confidence": 0.85,
+      "created_at": "2026-09-12T05:40:28.238089",
+      "decision": "rejected",
+      "id": 6,
+      "reasoning": "Rejected by soc_analyst: Known CDN IP",
+      "result": {
+        "reason": "Known CDN IP",
+        "status": "rejected"
+      },
+      "risk_score": 0.85,
+      "tenant_id": "default",
+      "tool_input": {
+        "ip_address": "192.0.2.1"
+      },
+      "tool_name": "block_ip"
+    },
+    {
+      "agent_name": "threat_hunt_agent",
+      "approver": "system_auto_approved",
+      "confidence": 1.0,
+      "created_at": "2026-09-12T05:40:37.130957",
+      "decision": "executed",
+      "id": 7,
+      "reasoning": "Automated telemetry check",
+      "result": {
+        "note": "Safe operation acknowledged",
+        "status": "executed"
+      },
+      "risk_score": 0.15,
+      "tenant_id": "default",
+      "tool_input": {
+        "ip_address": "8.8.8.8"
+      },
+      "tool_name": "read_threat_intel"
+    },
+    {
+      "agent_name": "triage_agent",
+      "approver": null,
+      "confidence": 0.9,
+      "created_at": "2026-09-12T05:40:46.090118",
+      "decision": "queued_for_approval",
+      "id": 8,
+      "reasoning": "API test incident",
+      "result": {
+        "pending_approval_id": 5
+      },
+      "risk_score": 0.85,
+      "tenant_id": "default",
+      "tool_input": {
+        "ip_address": "198.51.100.99"
+      },
+      "tool_name": "block_ip"
+    },
+    {
+      "agent_name": "triage_agent",
+      "approver": "test_user",
+      "confidence": 0.9,
+      "created_at": "2026-09-12T05:40:46.113423",
+      "decision": "approved",
+      "id": 9,
+      "reasoning": "Approved by test_user. Prior reasoning: API test incident",
+      "result": {
+        "blocked_ip": "198.51.100.99",
+        "method": "simulated_firewall",
+        "status": "blocked"
+      },
+      "risk_score": 0.85,
+      "tenant_id": "default",
+      "tool_input": {
+        "ip_address": "198.51.100.99"
+      },
+      "tool_name": "block_ip"
+    }
+  ],
+  "assets": [
+    {
+      "asset_type": "database",
+      "created_at": "2026-09-12T05:36:25.876865",
+      "criticality": "critical",
+      "id": 1,
+      "ip_address": "10.0.1.10",
+      "name": "prod-db-01",
+      "owner": "SecOps",
+      "status": "active",
+      "tenant_id": "tenant-alpha"
+    },
+    {
+      "asset_type": "gateway",
+      "created_at": "2026-09-12T05:36:25.876865",
+      "criticality": "high",
+      "id": 2,
+      "ip_address": "10.0.1.20",
+      "name": "api-gw-01",
+      "owner": "Infra",
+      "status": "active",
+      "tenant_id": "tenant-alpha"
+    },
+    {
+      "asset_type": "server",
+      "created_at": "2026-09-12T05:36:25.876865",
+      "criticality": "medium",
+      "id": 3,
+      "ip_address": "10.0.2.15",
+      "name": "logistics-srv-01",
+      "owner": "Ops",
+      "status": "active",
+      "tenant_id": "tenant-beta"
+    },
+    {
+      "asset_type": "server",
+      "created_at": "2026-09-12T05:41:26.157172",
+      "criticality": "high",
+      "id": 4,
+      "ip_address": "10.0.0.50",
+      "name": "test-server-01",
+      "owner": "SOC Team",
+      "status": "active",
+      "tenant_id": "default"
+    },
+    {
+      "asset_type": "server",
+      "created_at": "2026-09-12T05:41:34.812705",
+      "criticality": "medium",
+      "id": 5,
+      "ip_address": null,
+      "name": "minimal-asset",
+      "owner": null,
+      "status": "active",
+      "tenant_id": "default"
+    }
+  ],
+  "falco_events": [
+    {
+      "id": 1,
+      "output": "Bash spawned in container sop-backend",
+      "priority": "Critical",
+      "raw_event": {
+        "container": "sop-backend"
+      },
+      "rule": "Terminal shell in container",
+      "tenant_id": "tenant-alpha",
+      "timestamp": "2026-09-12T05:36:25.876865"
+    }
+  ],
+  "indicators": [
+    {
+      "checked_at": "2026-09-12T05:36:25.876865",
+      "country": "RU",
+      "details": {
+        "threat": "C2 beacon"
+      },
+      "id": 1,
+      "ip_address": "198.51.100.23",
+      "malicious_signals": 3,
+      "sources_checked": [
+        "virustotal",
+        "abuseipdb"
+      ],
+      "tenant_id": "tenant-alpha",
+      "verdict": "malicious"
+    },
+    {
+      "checked_at": "2026-09-12T05:36:25.876865",
+      "country": "US",
+      "details": {
+        "threat": "None"
+      },
+      "id": 2,
+      "ip_address": "203.0.113.88",
+      "malicious_signals": 0,
+      "sources_checked": [
+        "virustotal",
+        "shodan"
+      ],
+      "tenant_id": "tenant-beta",
+      "verdict": "clean"
+    }
+  ],
+  "knowledge_chunks": [
+    {
+      "content": "Isolate host from network immediately. Preserve RAM dump. Check backup integrity.",
+      "created_at": "2026-09-12T05:36:25.892831",
+      "embedding": null,
+      "id": 1,
+      "source_type": "playbook",
+      "tenant_id": "tenant-alpha",
+      "title": "Ransomware Response Playbook"
+    },
+    {
+      "content": "Adversaries may abuse command and script interpreters to execute commands.",
+      "created_at": "2026-09-12T05:36:25.892831",
+      "embedding": null,
+      "id": 2,
+      "source_type": "mitre",
+      "tenant_id": "tenant-alpha",
+      "title": "T1059 Command and Scripting Interpreter"
+    }
+  ],
+  "organizations": [
+    {
+      "created_at": "2026-09-12T05:36:25.864171",
+      "description": "Primary production tenant",
+      "id": 1,
+      "name": "Alpha Corp SecOps",
+      "tenant_id": "tenant-alpha"
+    },
+    {
+      "created_at": "2026-09-12T05:36:25.864171",
+      "description": "Secondary business tenant",
+      "id": 2,
+      "name": "Beta Logistics SOC",
+      "tenant_id": "tenant-beta"
+    }
+  ],
+  "pending_approvals": [
+    {
+      "action_name": "block_ip",
+      "agent_name": "ContainmentAgent",
+      "confidence": 1.0,
+      "decided_at": null,
+      "decided_by": null,
+      "executed_at": null,
+      "id": 1,
+      "params": null,
+      "reasoning": "Active C2 beacon detected",
+      "requested_at": "2026-09-12T05:36:25.959423",
+      "result": null,
+      "risk_score": 0.85,
+      "status": "pending",
+      "target": "198.51.100.23",
+      "tenant_id": "tenant-alpha"
+    },
+    {
+      "action_name": "block_ip",
+      "agent_name": "triage_agent",
+      "confidence": 0.95,
+      "decided_at": null,
+      "decided_by": null,
+      "executed_at": null,
+      "id": 2,
+      "params": {
+        "ip_address": "198.51.100.23"
+      },
+      "reasoning": "Active C2 beaconing detected",
+      "requested_at": "2026-09-12T05:40:11.549719",
+      "result": null,
+      "risk_score": 0.85,
+      "status": "pending",
+      "target": "198.51.100.23",
+      "tenant_id": "default"
+    },
+    {
+      "action_name": "block_ip",
+      "agent_name": "triage_agent",
+      "confidence": 0.9,
+      "decided_at": "2026-09-12T05:40:19.945683",
+      "decided_by": "soc_lead",
+      "executed_at": "2026-09-12T05:40:19.945683",
+      "id": 3,
+      "params": {
+        "ip_address": "203.0.113.50"
+      },
+      "reasoning": "DDoS source",
+      "requested_at": "2026-09-12T05:40:19.934650",
+      "result": {
+        "blocked_ip": "203.0.113.50",
+        "method": "simulated_firewall",
+        "status": "blocked"
+      },
+      "risk_score": 0.85,
+      "status": "executed",
+      "target": "203.0.113.50",
+      "tenant_id": "default"
+    },
+    {
+      "action_name": "block_ip",
+      "agent_name": "triage_agent",
+      "confidence": 0.85,
+      "decided_at": "2026-09-12T05:40:28.238089",
+      "decided_by": "soc_analyst",
+      "executed_at": null,
+      "id": 4,
+      "params": {
+        "ip_address": "192.0.2.1"
+      },
+      "reasoning": "Test false positive | Rejected by soc_analyst: Known CDN IP",
+      "requested_at": "2026-09-12T05:40:28.227351",
+      "result": null,
+      "risk_score": 0.85,
+      "status": "rejected",
+      "target": "192.0.2.1",
+      "tenant_id": "default"
+    },
+    {
+      "action_name": "block_ip",
+      "agent_name": "triage_agent",
+      "confidence": 0.9,
+      "decided_at": "2026-09-12T05:40:46.113423",
+      "decided_by": "test_user",
+      "executed_at": "2026-09-12T05:40:46.113423",
+      "id": 5,
+      "params": {
+        "ip_address": "198.51.100.99"
+      },
+      "reasoning": "API test incident",
+      "requested_at": "2026-09-12T05:40:46.082999",
+      "result": {
+        "blocked_ip": "198.51.100.99",
+        "method": "simulated_firewall",
+        "status": "blocked"
+      },
+      "risk_score": 0.85,
+      "status": "executed",
+      "target": "198.51.100.99",
+      "tenant_id": "default"
+    }
+  ],
+  "suricata_alerts": [
+    {
+      "dest_ip": "10.0.1.20",
+      "id": 1,
+      "raw_event": {
+        "proto": "TCP"
+      },
+      "severity": 1,
+      "signature": "ET MALWARE Cobalt Strike Beacon Observed",
+      "src_ip": "198.51.100.23",
+      "tenant_id": "tenant-alpha",
+      "timestamp": "2026-09-12T05:36:25.876865"
+    }
+  ],
+  "system_alerts": [
+    {
+      "id": 1,
+      "message": "Agent disconnected: agent-004",
+      "severity": "warning",
+      "tenant_id": "tenant-alpha",
+      "timestamp": "2026-09-12T05:36:25.876865",
+      "tool": "Wazuh"
+    }
+  ],
+  "zeek_notices": [
+    {
+      "dest_ip": "10.0.1.20",
+      "id": 1,
+      "message": "Port scan detected from 198.51.100.23",
+      "note_type": "Scan::Port_Scan",
+      "raw_event": {
+        "ports": [
+          22,
+          80,
+          443
+        ]
+      },
+      "src_ip": "198.51.100.23",
+      "tenant_id": "tenant-alpha",
+      "timestamp": "2026-09-12T05:36:25.876865"
+    }
+  ]
+}
